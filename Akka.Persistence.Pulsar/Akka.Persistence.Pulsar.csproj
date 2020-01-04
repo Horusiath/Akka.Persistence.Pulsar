@@ -10,4 +10,9 @@
       <PackageReference Include="DotPulsar" Version="0.7.2" />
     </ItemGroup>
 
+    <ItemGroup>
+      <Folder Include="Snapshot\" />
+      <Folder Include="Query\" />
+    </ItemGroup>
+
 </Project>

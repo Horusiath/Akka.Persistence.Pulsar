@@ -13,7 +13,7 @@ using Akka.Persistence.Query;
 using Akka.Streams.Dsl;
 using DotPulsar;
 
-namespace Akka.Persistence.Pulsar
+namespace Akka.Persistence.Pulsar.Journal
 {
     public sealed class PulsarReadJournal : IReadJournal, IEventsByPersistenceIdQuery, ICurrentEventsByPersistenceIdQuery, IEventsByTagQuery, ICurrentPersistenceIdsQuery, ICurrentEventsByTagQuery
     {

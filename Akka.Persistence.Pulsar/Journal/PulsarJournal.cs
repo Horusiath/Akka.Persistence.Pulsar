@@ -18,7 +18,7 @@ using Akka.Streams.Dsl;
 using DotPulsar;
 using DotPulsar.Abstractions;
 
-namespace Akka.Persistence.Pulsar
+namespace Akka.Persistence.Pulsar.Journal
 {
     public sealed class PulsarJournal : AsyncWriteJournal
     {
