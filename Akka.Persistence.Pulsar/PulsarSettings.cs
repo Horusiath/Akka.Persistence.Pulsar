@@ -21,10 +21,9 @@ namespace Akka.Persistence.Pulsar
         {
             ServiceUrl = new Uri(config.GetString("service-url", "pulsar://localhost:6650"), UriKind.Absolute);
             RetryInterval = config.GetTimeSpan("retry-interval", TimeSpan.FromSeconds(3));
-            VerifyCertificateAuthority = config.GetBoolean("verity-certificate-authority", true);
+            VerifyCertificateAuthority = config.GetBoolean("verify-certificate-authority", true);
             VerifyCertificateName = config.GetBoolean("verify-cerfiticate-name", false);
             JwtToken = config.HasPath("jwt-token") ? config.GetString("jwt-token") : null;
-
             ConnectionSecurity = config.HasPath("connection-security") 
                 ? (EncryptionPolicy)Enum.Parse(typeof(EncryptionPolicy), config.GetString("connection-security"), ignoreCase: true) 
                 : default;
