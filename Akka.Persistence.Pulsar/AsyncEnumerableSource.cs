@@ -38,6 +38,8 @@ namespace Akka.Persistence.Pulsar
                 this.onComplete = GetAsyncCallback(this.OnComplete);
                 this.handleContinuation = task =>
                 {
+                    // Since this Action is used as task continuation, we cannot safely call corresponding
+                    // OnSuccess/OnFailure/OnComplete methods directly. We need to do that via async callbacks.
                     if (task.IsFaulted) this.onFailure(task.Exception);
                     else if (task.IsCanceled) this.onFailure(new TaskCanceledException(task));
                     else if (task.Result) this.onSuccess(enumerator.Current);
@@ -61,13 +63,16 @@ namespace Akka.Persistence.Pulsar
                 var vtask = enumerator.MoveNextAsync();
                 if (vtask.IsCompletedSuccessfully)
                 {
-                    // short circuit
+                    // When MoveNextAsync returned immediatelly, we don't need to await.
+                    // We can use fast path instead.
                     if (vtask.Result)
                     {
+                        // if result is true, it means we got an element. Push it downstream.
                         Push(this.outlet, enumerator.Current);
                     }
                     else
                     {
+                        // if result is false, it means enumerator was closed. Complete stage in that case.
                         CompleteStage();
                     }
                 }
@@ -82,10 +87,11 @@ namespace Akka.Persistence.Pulsar
                 var vtask = this.enumerator.DisposeAsync();
                 if (vtask.IsCompletedSuccessfully)
                 {
-                    this.CompleteStage();
+                    this.CompleteStage(); // if dispose completed immediately, complete stage directly
                 }
                 else
                 {
+                    // for async disposals use async callback
                     vtask.GetAwaiter().OnCompleted(this.onComplete);
                 }
             }
@@ -98,6 +104,8 @@ namespace Akka.Persistence.Pulsar
 
         public AsyncEnumerableSourceStage(IAsyncEnumerable<T> asyncEnumerable)
         {
+            //TODO: when to dispose async enumerable? Should this be a part of ownership of current stage, or should it
+            // be a responsibility of the caller?
             this.asyncEnumerable = asyncEnumerable;
             Shape = new SourceShape<T>(outlet);
         }
