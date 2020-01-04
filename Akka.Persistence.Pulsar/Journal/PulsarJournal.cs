@@ -85,6 +85,7 @@ namespace Akka.Persistence.Pulsar.Journal
         protected override async Task<IImmutableList<Exception>> WriteMessagesAsync(IEnumerable<AtomicWrite> messages)
         {
             //TODO: creating producer for every single write is not feasible. We should be able to create or cache topics and use them ad-hoc when necessary.
+            // Will Batching when producing work here? https://github.com/danske-commodities/dotpulsar/issues/7
             await using var producer = client.CreateProducer(new ProducerOptions(topic));
             var failures = ImmutableArray.CreateBuilder<Exception>(0);
             foreach (var write in messages)
