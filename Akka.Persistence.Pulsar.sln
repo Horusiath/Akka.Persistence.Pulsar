@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Akka.Persistence.Pulsar", "Akka.Persistence.Pulsar\Akka.Persistence.Pulsar.csproj", "{B266FA52-24BF-477B-AEA9-5C50EA06F2A7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Akka.Persistence.Pulsar.Tests", "Akka.Persistence.Pulsar.Tests\Akka.Persistence.Pulsar.Tests.csproj", "{43F06A8C-762B-4393-8AC1-06229C54D858}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B266FA52-24BF-477B-AEA9-5C50EA06F2A7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B266FA52-24BF-477B-AEA9-5C50EA06F2A7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B266FA52-24BF-477B-AEA9-5C50EA06F2A7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B266FA52-24BF-477B-AEA9-5C50EA06F2A7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{43F06A8C-762B-4393-8AC1-06229C54D858}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{43F06A8C-762B-4393-8AC1-06229C54D858}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{43F06A8C-762B-4393-8AC1-06229C54D858}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{43F06A8C-762B-4393-8AC1-06229C54D858}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
