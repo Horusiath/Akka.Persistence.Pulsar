@@ -53,8 +53,11 @@ namespace Akka.Persistence.Pulsar.Journal
             long toSequenceNr, long max,
             Action<IPersistentRepresentation> recoveryCallback)
         {
-            var startMessageId =
-                new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
+            //according to pulsar doc, messageid is returned for each message produced. The Pulsar system is in charge of creating MessageId
+            //What we can do is to keep track of MessageId(s) and then reconstruct it here
+            //We can get the latest MessageId with MessageId.Latest e.g
+            //var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
+            var startMessageId = MessageId.Latest;
             var reader = client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
             await foreach (var message in reader.Messages())
             {
@@ -86,6 +89,7 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             //TODO: creating producer for every single write is not feasible. We should be able to create or cache topics and use them ad-hoc when necessary.
             // Will Batching when producing work here? https://github.com/danske-commodities/dotpulsar/issues/7
+            
             await using var producer = client.CreateProducer(new ProducerOptions(topic));
             var failures = ImmutableArray.CreateBuilder<Exception>(0);
             foreach (var write in messages)
@@ -101,7 +105,10 @@ namespace Akka.Persistence.Pulsar.Journal
                             SequenceId = (ulong) message.SequenceNr,
                         };
                         var data = serialization.Serialize(write.Payload);
-                        await producer.Send(metadata, data);
+                        //according to pulsar doc, messageid is returned for each message produced. The Pulsar system is in charge of creating MessageId
+                        //What we can do is to keep track of MessageId(s)
+                        var messageid = await producer.Send(metadata, data);
+                        //store messageid for later use
                     }
                 }
                 catch (Exception e)

@@ -13,7 +13,7 @@ using Akka.Persistence.Query;
 using Akka.Streams.Dsl;
 using DotPulsar;
 
-namespace Akka.Persistence.Pulsar.Journal
+namespace Akka.Persistence.Pulsar.Query
 {
     public sealed class PulsarReadJournal : IReadJournal, IEventsByPersistenceIdQuery, ICurrentEventsByPersistenceIdQuery, IEventsByTagQuery, ICurrentPersistenceIdsQuery, ICurrentEventsByTagQuery
     {
@@ -42,7 +42,11 @@ namespace Akka.Persistence.Pulsar.Journal
         public Source<EventEnvelope, NotUsed> EventsByPersistenceId(string persistenceId, long fromSequenceNr, long toSequenceNr)
         {
             var client = settings.CreateClient();
-            var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
+            //according to pulsar doc, messageid is returned for each message produced. The Pulsar system is in charge of creating MessageId
+            //What we can do is to keep track of MessageId(s) and then reconstruct it here
+            //We can get the latest MessageId with MessageId.Latest
+            //var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
+            var startMessageId = MessageId.Latest;
             var reader = client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
             return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages()))
                 .Select(message =>
