@@ -9,9 +9,11 @@
 
 using Akka.Actor;
 using Akka.Configuration;
+using Akka.Persistence.Pulsar.CursorStore;
 using Akka.Persistence.Query;
 using Akka.Streams.Dsl;
 using DotPulsar;
+using System.Buffers;
 
 namespace Akka.Persistence.Pulsar.Query
 {
@@ -22,14 +24,19 @@ namespace Akka.Persistence.Pulsar.Query
         
         private readonly ActorSystem system;
         private readonly PulsarSettings settings;
+        private SerializationHelper _serialization;
+        private readonly IMessageIdStore _messageIdStore;
+        private readonly ISequenceStore _sequenceStore;
 
-        public PulsarReadJournal(ActorSystem system, PulsarSettings settings)
+        public PulsarReadJournal(ActorSystem system, PulsarSettings settings, IMessageIdStore messageIdStore, ISequenceStore sequenceStore)
         {
             this.system = system;
             this.settings = settings;
+            _messageIdStore = messageIdStore;
+            _sequenceStore = sequenceStore;
+            _serialization = new SerializationHelper(system);
         }
-
-        public const string Identifier = "akka.persistence.query.journal.pulsar";
+    public const string Identifier = "akka.persistence.query.journal.pulsar";
 
         /// <summary>
         /// Streams all events stored for a given <paramref name="persistenceId"/> (pulsar virtual topic?). This is a
@@ -46,12 +53,13 @@ namespace Akka.Persistence.Pulsar.Query
             //What we can do is to keep track of MessageId(s) and then reconstruct it here
             //We can get the latest MessageId with MessageId.Latest
             //var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
-            var startMessageId = MessageId.Latest;
+            var startMessageId = _messageIdStore.GetMessageId(persistenceId);
             var reader = client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
             return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages()))
                 .Select(message =>
                 {
-                    return new EventEnvelope(offset: offset, persistenceId, message.SequenceId, data);
+                    //Could this be proper?
+                    return new EventEnvelope(offset: Offset.Sequence(_serialization.PersistentFromBytes(message.Data.ToArray()).SequenceNr), persistenceId, (long)message.SequenceId, message.Data);
                 });
         }
 
@@ -109,13 +117,15 @@ namespace Akka.Persistence.Pulsar.Query
     {
         private readonly ExtendedActorSystem system;
         private readonly PulsarSettings settings;
+        private readonly IMessageIdStore _messageIdStore;
+        private readonly ISequenceStore _sequenceStore;
 
-        public PulsarReadJournalProvider(ExtendedActorSystem system, Config config)
+        public PulsarReadJournalProvider(ExtendedActorSystem system, Config config, IMessageIdStore messageIdStore, ISequenceStore sequenceStore)
         {
             this.system = system;
             this.settings = new PulsarSettings(config);
         }
 
-        public IReadJournal GetReadJournal() => new PulsarReadJournal(system, settings);
+        public IReadJournal GetReadJournal() => new PulsarReadJournal(system, settings, _messageIdStore, _sequenceStore);
     }
 }

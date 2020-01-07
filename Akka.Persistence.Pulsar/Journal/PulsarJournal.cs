@@ -10,11 +10,14 @@
 #endregion
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
 using Akka.Actor;
+using Akka.Event;
 using Akka.Persistence.Journal;
+using Akka.Persistence.Pulsar.CursorStore;
 using Akka.Persistence.Query;
 using Akka.Streams.Dsl;
 using DotPulsar;
@@ -25,13 +28,27 @@ namespace Akka.Persistence.Pulsar.Journal
     public sealed class PulsarJournal : AsyncWriteJournal
     {
         private readonly PulsarSettings settings;
+        private readonly ILoggingAdapter _log = Context.GetLogger();
         private readonly IPulsarClient client;
-        private Akka.Serialization.Serialization serialization;
+        private readonly IMessageIdStore _messageIdStore;
+        private readonly ISequenceStore _sequenceStore;
 
-        public Akka.Serialization.Serialization Serialization => serialization ??= Context.System.Serialization;
+        //COPIED FROM OTHER STORAGE IMPLEMENTATION
+        private readonly HashSet<string> _allPersistenceIds = new HashSet<string>();
+        private readonly HashSet<IActorRef> _allPersistenceIdSubscribers = new HashSet<IActorRef>();
+        private readonly Dictionary<string, ISet<IActorRef>> _tagSubscribers =
+            new Dictionary<string, ISet<IActorRef>>();
+        private readonly Dictionary<string, ISet<IActorRef>> _persistenceIdSubscribers
+            = new Dictionary<string, ISet<IActorRef>>();
+        private SerializationHelper _serialization;
 
-        public PulsarJournal() : this(PulsarPersistence.Get(Context.System).JournalSettings)
+        //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
+
+        public PulsarJournal(IMessageIdStore messageIdStore, ISequenceStore sequenceStore) : this(PulsarPersistence.Get(Context.System).JournalSettings)
         {
+            _messageIdStore = messageIdStore;
+            _sequenceStore = sequenceStore;
+            _serialization = new SerializationHelper(Context.System);
         }
 
         public PulsarJournal(PulsarSettings settings)
@@ -53,16 +70,40 @@ namespace Akka.Persistence.Pulsar.Journal
             long toSequenceNr, long max,
             Action<IPersistentRepresentation> recoveryCallback)
         {
+            _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
+
+            if (max == 0)
+                return;
             //according to pulsar doc, messageid is returned for each message produced. The Pulsar system is in charge of creating MessageId
             //What we can do is to keep track of MessageId(s) and then reconstruct it here
             //We can get the latest MessageId with MessageId.Latest e.g
             //var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
-            var startMessageId = MessageId.Latest;
+            //var startMessageId = MessageId.Latest;
+
+            var startMessageId = _messageIdStore.GetMessageId(persistenceId);//rough sketchy thoughts
             var reader = client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
+            var count = 0L;
             await foreach (var message in reader.Messages())
             {
-                var persistent = new Persistent(payload, sequenceNr, persistenceId, manifest, sender);
-                recoveryCallback(persistent);
+                // check if we've hit max recovery
+                if (count >= max)
+                    return;
+                ++count;
+                var deserialized = _serialization.PersistentFromBytes(message.Data.ToArray());
+                // Write the new persistent because it sets the sender as deadLetters which is not correct
+                if((deserialized.SequenceNr >= fromSequenceNr) && (deserialized.SequenceNr <= toSequenceNr))
+                {
+                    var persistent =
+                    new Persistent(
+                        deserialized.Payload,
+                        deserialized.SequenceNr,
+                        deserialized.PersistenceId,
+                        deserialized.Manifest,
+                        deserialized.IsDeleted,
+                        ActorRefs.NoSender,
+                        deserialized.WriterGuid);
+                    recoveryCallback(persistent);
+                }
             }
         }
 
@@ -75,7 +116,7 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             //TODO: how to read the latest known sequence nr in pulsar? Theoretically it's the last element in virtual
             // topic belonging to that persistenceId.
-            throw new NotImplementedException();
+            return await Task.FromResult(_sequenceStore.GetSequenceId(persistenceId));
         }
 
         /// <summary>
@@ -102,13 +143,15 @@ namespace Akka.Persistence.Pulsar.Journal
                         var metadata = new MessageMetadata
                         {
                             Key = message.PersistenceId,
-                            SequenceId = (ulong) message.SequenceNr,
+                            SequenceId = (ulong) message.SequenceNr
                         };
-                        var data = serialization.Serialize(write.Payload);
+                        var data = _serialization.PersistentToBytes((IPersistentRepresentation)message.Payload);
                         //according to pulsar doc, messageid is returned for each message produced. The Pulsar system is in charge of creating MessageId
                         //What we can do is to keep track of MessageId(s)
                         var messageid = await producer.Send(metadata, data);
                         //store messageid for later use
+                        _messageIdStore.SaveMessageId(message.PersistenceId, messageid);
+                          
                     }
                 }
                 catch (Exception e)
