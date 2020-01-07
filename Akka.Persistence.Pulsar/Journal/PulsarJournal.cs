@@ -11,6 +11,7 @@
 
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
@@ -32,6 +33,7 @@ namespace Akka.Persistence.Pulsar.Journal
         private readonly IPulsarClient client;
         private readonly IMessageIdStore _messageIdStore;
         private readonly ISequenceStore _sequenceStore;
+        private ConcurrentDictionary<string, IProducer> _producers = new ConcurrentDictionary<string, IProducer>();
 
         //COPIED FROM OTHER STORAGE IMPLEMENTATION
         private readonly HashSet<string> _allPersistenceIds = new HashSet<string>();
@@ -70,6 +72,7 @@ namespace Akka.Persistence.Pulsar.Journal
             long toSequenceNr, long max,
             Action<IPersistentRepresentation> recoveryCallback)
         {
+            await CreateProducer(persistenceId);
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
 
             if (max == 0)
@@ -129,9 +132,9 @@ namespace Akka.Persistence.Pulsar.Journal
         protected override async Task<IImmutableList<Exception>> WriteMessagesAsync(IEnumerable<AtomicWrite> messages)
         {
             //TODO: creating producer for every single write is not feasible. We should be able to create or cache topics and use them ad-hoc when necessary.
-            // Will Batching when producing work here? https://github.com/danske-commodities/dotpulsar/issues/7
-            
-            await using var producer = client.CreateProducer(new ProducerOptions(topic));
+            //Now I see the issue here! Will ReplayMessagesAsync always be called before WriteMessagesAsync? If yes, we could cache producers at that point
+
+            //await using var producer = client.CreateProducer(new ProducerOptions(topic));
             var failures = ImmutableArray.CreateBuilder<Exception>(0);
             foreach (var write in messages)
             {
@@ -140,6 +143,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     var persistentMessages = (IImmutableList<IPersistentRepresentation>) write.Payload;
                     foreach (var message in persistentMessages)
                     {
+                        var producer = await GetProducer(message.PersistenceId);
                         var metadata = new MessageMetadata
                         {
                             Key = message.PersistenceId,
@@ -170,6 +174,27 @@ namespace Akka.Persistence.Pulsar.Journal
         protected override async Task DeleteMessagesToAsync(string persistenceId, long toSequenceNr)
         {
             throw new NotImplementedException();
+        }
+        private async Task CreateProducer(string persistenceid)
+        {
+            var topic = $"persistenceid-{persistenceid}".ToLower();
+            if(!_producers.ContainsKey(topic))
+            {
+                await using var producer = client.CreateProducer(new ProducerOptions(topic));
+                _producers.TryAdd(topic, producer);
+            }       
+
+        }
+        private async Task<IProducer> GetProducer(string persistenceid)
+        {
+            var topic = $"persistenceid-{persistenceid}".ToLower();
+            if (!_producers.ContainsKey(topic))
+            {
+                await using var producer = client.CreateProducer(new ProducerOptions(topic));
+                _producers.TryAdd(topic, producer);
+                return producer;
+            }
+            return _producers[topic];
         }
     }
 }
