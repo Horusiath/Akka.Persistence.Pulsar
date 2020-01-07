@@ -34,11 +34,13 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
         protected override Task DeleteAsync(SnapshotMetadata metadata)
         {
+            //Probably Pulsar Message retention and expiry
             throw new NotImplementedException();
         }
 
         protected override Task DeleteAsync(string persistenceId, SnapshotSelectionCriteria criteria)
         {
+            //Probable Pulsar Message retention and expiry
             throw new NotImplementedException();
         }
 
