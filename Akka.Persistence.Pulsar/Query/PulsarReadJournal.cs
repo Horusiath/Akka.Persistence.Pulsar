@@ -55,9 +55,8 @@ namespace Akka.Persistence.Pulsar.Query
             //var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
             var (_, startMessageId) = _sequenceStore.GetLatestSequenceId(persistenceId);
             var reader = client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
-            return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages())).
-                Where(x => (x.SequenceId >= (ulong)fromSequenceNr) && (x.SequenceId <= (ulong) toSequenceNr))
-                .Named("EventsByPersistenceId-" + persistenceId)
+            return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages()))
+                //.Named("EventsByPersistenceId-" + persistenceId)
                 .Select(message =>
                 {
                     return new EventEnvelope(offset: new Sequence(_serialization.PersistentFromBytes(message.Data.ToArray()).SequenceNr), persistenceId, (long)message.SequenceId, message.Data);
@@ -75,7 +74,18 @@ namespace Akka.Persistence.Pulsar.Query
         public Source<EventEnvelope, NotUsed> CurrentEventsByPersistenceId(string persistenceId, long fromSequenceNr, long toSequenceNr)
         {
             var client = settings.CreateClient();
-            throw new System.NotImplementedException();
+            //according to pulsar doc, messageid is returned for each message produced. The Pulsar system is in charge of creating MessageId
+            //What we can do is to keep track of MessageId(s) and then reconstruct it here
+            //We can get the latest MessageId with MessageId.Latest
+            //var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
+            var (_, startMessageId) = _sequenceStore.GetLatestSequenceId(persistenceId);
+            var reader = client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
+            return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages())).
+                Where(x => (x.SequenceId >= (ulong)fromSequenceNr) && (x.SequenceId <= (ulong)toSequenceNr))
+                .Select(message =>
+                {
+                    return new EventEnvelope(offset: new Sequence(_serialization.PersistentFromBytes(message.Data.ToArray()).SequenceNr), persistenceId, (long)message.SequenceId, message.Data);
+                });
         }
 
         /// <summary>
