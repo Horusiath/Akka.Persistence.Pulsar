@@ -1,7 +1,5 @@
 ﻿using DotPulsar;
 using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace Akka.Persistence.Pulsar.CursorStore.Impl
 {
@@ -12,7 +10,7 @@ namespace Akka.Persistence.Pulsar.CursorStore.Impl
             throw new NotImplementedException();
         }
 
-        public (long fromSequenceId, long toSequenceId, MessageId startMessageId, MessageId endMessageId) GetSequenceRange(string persistenceid, DateTime persistenceTime)
+        public (long fromSequenceId, long toSequenceId, MessageId startMessageId, MessageId endMessageId) GetSequenceRange(string persistenceid, DateTime startDate, DateTime endDate)
         {
             throw new NotImplementedException();
         }
