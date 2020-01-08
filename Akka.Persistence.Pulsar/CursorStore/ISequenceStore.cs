@@ -1,11 +1,12 @@
-﻿using System;
+﻿using DotPulsar;
+using System;
 
 namespace Akka.Persistence.Pulsar.CursorStore
 {
     public interface ISequenceStore
     {
-        long GetSequenceId(string persistenceId);
-        bool SequenceId(string persistenceid, long sequenceid);
-        (long fromSeq, long toSeq) GetToAndFromSequence(string persistenceid, DateTime persistenceTime);
+        (long sequenceid, MessageId messageId) GetLatestSequenceId(string persistenceId);
+        bool SaveSequenceId(string persistenceid, long sequenceid, MessageId messageId, DateTime sequenceTime);
+        (long fromSequenceId, long toSequenceId, MessageId startMessageId, MessageId endMessageId) GetSequenceRange(string persistenceid, DateTime persistenceTime);
     }
 }

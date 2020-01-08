@@ -29,7 +29,7 @@ namespace Akka.Persistence.Pulsar.Journal
         private readonly PulsarSettings settings;
         private readonly ILoggingAdapter _log = Context.GetLogger();
         private readonly IPulsarClient _client;
-        private readonly IMessageIdStore _messageIdStore;
+        //private readonly IMessageIdStore _messageIdStore;
         private readonly ISequenceStore _sequenceStore;
         private ConcurrentDictionary<string, IProducer> _producers = new ConcurrentDictionary<string, IProducer>();
 
@@ -44,9 +44,9 @@ namespace Akka.Persistence.Pulsar.Journal
 
         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
 
-        public PulsarJournal(IMessageIdStore messageIdStore, ISequenceStore sequenceStore) : this(PulsarPersistence.Get(Context.System).JournalSettings)
+        public PulsarJournal(ISequenceStore sequenceStore) : this(PulsarPersistence.Get(Context.System).JournalSettings)
         {
-            _messageIdStore = messageIdStore;
+            //_messageIdStore = messageIdStore;
             _sequenceStore = sequenceStore;
             _serialization = new SerializationHelper(Context.System);
         }
@@ -81,7 +81,7 @@ namespace Akka.Persistence.Pulsar.Journal
             //var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
             //var startMessageId = MessageId.Latest;
 
-            var startMessageId = _messageIdStore.GetMessageId(persistenceId);//rough sketchy thoughts
+            var (_, startMessageId) = _sequenceStore.GetLatestSequenceId(persistenceId);//rough sketchy thoughts
             var reader = _client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
             var count = 0L;
             await foreach (var message in reader.Messages())
@@ -117,7 +117,8 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             //TODO: how to read the latest known sequence nr in pulsar? Theoretically it's the last element in virtual
             // topic belonging to that persistenceId.
-            return await Task.FromResult(_sequenceStore.GetSequenceId(persistenceId));
+            var (sequencid, _) = _sequenceStore.GetLatestSequenceId(persistenceId);
+            return await Task.FromResult(sequencid);
         }
 
         /// <summary>
@@ -152,7 +153,8 @@ namespace Akka.Persistence.Pulsar.Journal
                         //What we can do is to keep track of MessageId(s)
                         var messageid = await producer.Send(metadata, data);
                         //store messageid for later use
-                        _messageIdStore.SaveMessageId(message.PersistenceId, messageid);
+                        _sequenceStore.SaveSequenceId(message.PersistenceId, message.SequenceNr, messageid, DateTime.UtcNow);
+                        //_messageIdStore.SaveMessageId(message.PersistenceId, messageid);
                           
                     }
                 }

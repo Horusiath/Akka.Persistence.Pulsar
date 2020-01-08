@@ -7,7 +7,7 @@
 // -----------------------------------------------------------------------
 #endregion
 
-using System.Runtime.CompilerServices;
+
 using Akka.Actor;
 
 namespace Akka.Persistence.Pulsar
