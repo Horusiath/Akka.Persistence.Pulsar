@@ -19,8 +19,6 @@ using Akka.Actor;
 using Akka.Event;
 using Akka.Persistence.Journal;
 using Akka.Persistence.Pulsar.CursorStore;
-using Akka.Persistence.Query;
-using Akka.Streams.Dsl;
 using DotPulsar;
 using DotPulsar.Abstractions;
 
@@ -30,7 +28,7 @@ namespace Akka.Persistence.Pulsar.Journal
     {
         private readonly PulsarSettings settings;
         private readonly ILoggingAdapter _log = Context.GetLogger();
-        private readonly IPulsarClient client;
+        private readonly IPulsarClient _client;
         private readonly IMessageIdStore _messageIdStore;
         private readonly ISequenceStore _sequenceStore;
         private ConcurrentDictionary<string, IProducer> _producers = new ConcurrentDictionary<string, IProducer>();
@@ -56,7 +54,7 @@ namespace Akka.Persistence.Pulsar.Journal
         public PulsarJournal(PulsarSettings settings)
         {
             this.settings = settings;
-            this.client = settings.CreateClient();
+            this._client = settings.CreateClient();
         }
 
         /// <summary>
@@ -84,7 +82,7 @@ namespace Akka.Persistence.Pulsar.Journal
             //var startMessageId = MessageId.Latest;
 
             var startMessageId = _messageIdStore.GetMessageId(persistenceId);//rough sketchy thoughts
-            var reader = client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
+            var reader = _client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
             var count = 0L;
             await foreach (var message in reader.Messages())
             {
@@ -173,14 +171,14 @@ namespace Akka.Persistence.Pulsar.Journal
         /// </summary>
         protected override async Task DeleteMessagesToAsync(string persistenceId, long toSequenceNr)
         {
-            throw new NotImplementedException();
+            await Task.CompletedTask;
         }
         private async Task CreateProducer(string persistenceid)
         {
             var topic = $"persistenceid-{persistenceid}".ToLower();
             if(!_producers.ContainsKey(topic))
             {
-                await using var producer = client.CreateProducer(new ProducerOptions(topic));
+                await using var producer = _client.CreateProducer(new ProducerOptions(topic));
                 _producers.TryAdd(topic, producer);
             }       
 
@@ -190,11 +188,16 @@ namespace Akka.Persistence.Pulsar.Journal
             var topic = $"persistenceid-{persistenceid}".ToLower();
             if (!_producers.ContainsKey(topic))
             {
-                await using var producer = client.CreateProducer(new ProducerOptions(topic));
+                await using var producer = _client.CreateProducer(new ProducerOptions(topic));
                 _producers.TryAdd(topic, producer);
                 return producer;
             }
             return _producers[topic];
+        }
+        protected override void PostStop()
+        {
+            base.PostStop();
+            _client.DisposeAsync().GetAwaiter();
         }
     }
 }
