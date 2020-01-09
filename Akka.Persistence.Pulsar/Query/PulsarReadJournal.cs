@@ -46,20 +46,21 @@ namespace Akka.Persistence.Pulsar.Query
         /// This stream complete when it reaches <paramref name="toSequenceNr"/>, but it DOESN'T stop when we read all
         /// events currently stored. If you want to read only events currently stored use <see cref="CurrentEventsByPersistenceId"/>.
         /// </summary>
-        public Source<EventEnvelope, NotUsed> EventsByPersistenceId(string persistenceId, long fromSequenceNr, long toSequenceNr)
+        public Source<EventEnvelope, NotUsed> EventsByPersistenceId(string persistenceid, long fromSequenceNr, long toSequenceNr)
         {
+            var topic = Utils.Journal.Topic(persistenceid);
             var client = settings.CreateClient();
             //according to pulsar doc, messageid is returned for each message produced. The Pulsar system is in charge of creating MessageId
             //What we can do is to keep track of MessageId(s) and then reconstruct it here
             //We can get the latest MessageId with MessageId.Latest
             //var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
-            var (_, startMessageId) = _sequenceStore.GetLatestSequenceId(persistenceId);
-            var reader = client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
+            var (_, startMessageId) = _sequenceStore.GetLatestSequenceId(topic);
+            var reader = client.CreateReader(new ReaderOptions(startMessageId, topic));
             return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages()))
                 //.Named("EventsByPersistenceId-" + persistenceId)
                 .Select(message =>
                 {
-                    return new EventEnvelope(offset: new Sequence(_serialization.PersistentFromBytes(message.Data.ToArray()).SequenceNr), persistenceId, (long)message.SequenceId, message.Data);
+                    return new EventEnvelope(offset: new Sequence(_serialization.PersistentFromBytes(message.Data.ToArray()).SequenceNr), persistenceid, (long)message.SequenceId, message.Data);
                 });
         }
 
@@ -71,20 +72,21 @@ namespace Akka.Persistence.Pulsar.Query
         /// This stream complete when it reaches <paramref name="toSequenceNr"/> or when we read all
         /// events currently stored. If you want to read all events (even future ones), use <see cref="EventsByPersistenceId"/>.
         /// </summary>
-        public Source<EventEnvelope, NotUsed> CurrentEventsByPersistenceId(string persistenceId, long fromSequenceNr, long toSequenceNr)
+        public Source<EventEnvelope, NotUsed> CurrentEventsByPersistenceId(string persistenceid, long fromSequenceNr, long toSequenceNr)
         {
+            var topic = Utils.Journal.Topic(persistenceid);
             var client = settings.CreateClient();
             //according to pulsar doc, messageid is returned for each message produced. The Pulsar system is in charge of creating MessageId
             //What we can do is to keep track of MessageId(s) and then reconstruct it here
             //We can get the latest MessageId with MessageId.Latest
             //var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
-            var (_, startMessageId) = _sequenceStore.GetLatestSequenceId(persistenceId);
-            var reader = client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
+            var (_, startMessageId) = _sequenceStore.GetLatestSequenceId(persistenceid);
+            var reader = client.CreateReader(new ReaderOptions(startMessageId, persistenceid));
             return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages())).
                 Where(x => (x.SequenceId >= (ulong)fromSequenceNr) && (x.SequenceId <= (ulong)toSequenceNr))
                 .Select(message =>
                 {
-                    return new EventEnvelope(offset: new Sequence(_serialization.PersistentFromBytes(message.Data.ToArray()).SequenceNr), persistenceId, (long)message.SequenceId, message.Data);
+                    return new EventEnvelope(offset: new Sequence(_serialization.PersistentFromBytes(message.Data.ToArray()).SequenceNr), persistenceid, (long)message.SequenceId, message.Data);
                 });
         }
 

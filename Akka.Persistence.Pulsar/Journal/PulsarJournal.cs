@@ -14,6 +14,8 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.Event;
@@ -21,6 +23,7 @@ using Akka.Persistence.Journal;
 using Akka.Persistence.Pulsar.CursorStore;
 using DotPulsar;
 using DotPulsar.Abstractions;
+using DotPulsar.Internal;
 
 namespace Akka.Persistence.Pulsar.Journal
 {
@@ -29,17 +32,10 @@ namespace Akka.Persistence.Pulsar.Journal
         private readonly PulsarSettings settings;
         private readonly ILoggingAdapter _log = Context.GetLogger();
         private readonly IPulsarClient _client;
-        //private readonly IMessageIdStore _messageIdStore;
         private readonly ISequenceStore _sequenceStore;
         private ConcurrentDictionary<string, IProducer> _producers = new ConcurrentDictionary<string, IProducer>();
 
-        //COPIED FROM OTHER STORAGE IMPLEMENTATION
-        private readonly HashSet<string> _allPersistenceIds = new HashSet<string>();
-        private readonly HashSet<IActorRef> _allPersistenceIdSubscribers = new HashSet<IActorRef>();
-        private readonly Dictionary<string, ISet<IActorRef>> _tagSubscribers =
-            new Dictionary<string, ISet<IActorRef>>();
-        private readonly Dictionary<string, ISet<IActorRef>> _persistenceIdSubscribers
-            = new Dictionary<string, ISet<IActorRef>>();
+        
         private SerializationHelper _serialization;
 
         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
@@ -130,10 +126,7 @@ namespace Akka.Persistence.Pulsar.Journal
         /// </summary>
         protected override async Task<IImmutableList<Exception>> WriteMessagesAsync(IEnumerable<AtomicWrite> messages)
         {
-            //TODO: creating producer for every single write is not feasible. We should be able to create or cache topics and use them ad-hoc when necessary.
-            //Now I see the issue here! Will ReplayMessagesAsync always be called before WriteMessagesAsync? If yes, we could cache producers at that point
-
-            //await using var producer = client.CreateProducer(new ProducerOptions(topic));
+            
             var failures = ImmutableArray.CreateBuilder<Exception>(0);
             foreach (var write in messages)
             {
@@ -143,15 +136,21 @@ namespace Akka.Persistence.Pulsar.Journal
                     foreach (var message in persistentMessages)
                     {
                         var producer = await GetProducer(message.PersistenceId);
-                        var metadata = new MessageMetadata
+                        var messageBuilder = new MessageBuilder(producer);
+                        messageBuilder.Key(message.PersistenceId);
+                        messageBuilder.SequenceId((ulong)message.SequenceNr);
+                        if(message.Payload is Tagged t)
                         {
-                            Key = message.PersistenceId,
-                            SequenceId = (ulong) message.SequenceNr
-                        };
-                        var data = _serialization.PersistentToBytes((IPersistentRepresentation)message.Payload);
-                        //according to pulsar doc, messageid is returned for each message produced. The Pulsar system is in charge of creating MessageId
-                        //What we can do is to keep track of MessageId(s)
-                        var messageid = await producer.Send(metadata, data);
+                            var tgs = 0;
+                            foreach(var tg in t.Tags)
+                            {
+                                messageBuilder.Property($"Tag-{tgs}", tg);//Tag messages
+                            }
+                        }
+                        
+                        var journal = _serialization.PersistentToBytes((IPersistentRepresentation)message.Payload);
+                        //var journalEntries = ToJournalEntry(message);
+                        var messageid = await messageBuilder.Send(journal, CancellationToken.None);//For now
                         //store messageid for later use
                         _sequenceStore.SaveSequenceId(message.PersistenceId, message.SequenceNr, messageid, DateTime.UtcNow);
                         //_messageIdStore.SaveMessageId(message.PersistenceId, messageid);
@@ -165,6 +164,49 @@ namespace Akka.Persistence.Pulsar.Journal
             }
 
             return failures.ToImmutable();
+        }
+        private JournalEntry ToJournalEntry(IPersistentRepresentation message)
+        {
+            object payload = message.Payload;
+            if (message.Payload is Tagged tagged)
+            {
+                payload = tagged.Payload;
+                message = message.WithPayload(payload); // need to update the internal payload when working with tags
+            }
+
+
+            var serializer = _serialization.FindSerializerFor(message);
+            var binary = serializer.ToBinary(message);
+
+
+            return new JournalEntry
+            {
+                Id = message.PersistenceId + "_" + message.SequenceNr,
+                Ordering = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), // Auto-populates with timestamp
+                IsDeleted = message.IsDeleted,
+                Payload = binary,
+                PersistenceId = message.PersistenceId,
+                SequenceNr = message.SequenceNr,
+                Manifest = string.Empty, // don't need a manifest here - it's embedded inside the PersistentMessage
+                Tags = tagged.Tags?.ToList(),
+                SerializerId = null // don't need a serializer ID here either; only for backwards-comat
+            };
+        }
+
+        private async Task SetHighSequenceId(IList<AtomicWrite> messages, MessageId messageId)
+        {
+            var persistenceId = messages.Select(c => c.PersistenceId).First();
+            var highSequenceId = messages.Max(c => c.HighestSequenceNr);
+
+            var metadataEntry = new MetadataEntry
+            {
+                Id = persistenceId,
+                PersistenceId = persistenceId,
+                SequenceNr = highSequenceId,
+                //TimeStamp = messages.Max(c => c..HighestSequenceNr)
+            };
+
+            //await _metadataCollection.Value.ReplaceOneAsync(filter, metadataEntry, new UpdateOptions() { IsUpsert = true });
         }
 
         /// <summary>

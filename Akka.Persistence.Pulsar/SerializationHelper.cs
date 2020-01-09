@@ -43,7 +43,10 @@ namespace Akka.Persistence.Pulsar
             var msg = serializer.FromBinary<IPersistentRepresentation>(bytes);
             return msg;
         }
-
+        public Serializer FindSerializerFor(IPersistentRepresentation message)
+        {
+            return _actorSystem.Serialization.FindSerializerForType(_persistentRepresentation);
+        }
         public IPersistentRepresentation PersistentFromBytesWithManifest(byte[] bytes, string manifest)
         {
             /*

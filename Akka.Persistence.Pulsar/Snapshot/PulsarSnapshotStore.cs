@@ -59,8 +59,17 @@ namespace Akka.Persistence.Pulsar.Snapshot
             //This needs testing to see if this can be relied on!
             //Other implementation filtered with sequenceid and timestamp, do we need same here?
             var reader = await GetReader(persistenceId);
-            SelectedSnapshot selectedSnapshot = null;
-            await foreach(var message in reader.Messages())
+            var readerEnumerator = reader.Messages().GetAsyncEnumerator();
+            await readerEnumerator.MoveNextAsync();
+            Message message = readerEnumerator.Current;
+            var snapshot = _serialization.SnapshotFromBytes(message.Data.ToArray());
+            SelectedSnapshot selectedSnapshot = new SelectedSnapshot(
+            new SnapshotMetadata(
+                persistenceId,
+                (long)message.SequenceId,
+                new DateTime((long)message.EventTime)),
+            snapshot.Data);
+            /*await foreach(var message in reader.Messages())
             {
                 //This is hoping that only one message was retrieved since prefetch count was set to 1;
                 //Yet to understand if this works that way
@@ -71,7 +80,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
                                 (long)message.SequenceId,
                                 new DateTime((long)message.EventTime)),
                             snapshot.Data);
-            }
+            }*/
             return selectedSnapshot;
         }
 
