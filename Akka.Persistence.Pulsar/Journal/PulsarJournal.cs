@@ -15,6 +15,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Akka.Actor;
@@ -32,18 +33,16 @@ namespace Akka.Persistence.Pulsar.Journal
         private readonly PulsarSettings settings;
         private readonly ILoggingAdapter _log = Context.GetLogger();
         private readonly IPulsarClient _client;
-        private readonly ISequenceStore _sequenceStore;
         private ConcurrentDictionary<string, IProducer> _producers = new ConcurrentDictionary<string, IProducer>();
+        private ConcurrentDictionary<string, IReader> _metaDataReaders = new ConcurrentDictionary<string, IReader>();
 
         
         private SerializationHelper _serialization;
 
         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
 
-        public PulsarJournal(ISequenceStore sequenceStore) : this(PulsarPersistence.Get(Context.System).JournalSettings)
+        public PulsarJournal() : this(PulsarPersistence.Get(Context.System).JournalSettings)
         {
-            //_messageIdStore = messageIdStore;
-            _sequenceStore = sequenceStore;
             _serialization = new SerializationHelper(Context.System);
         }
 
@@ -66,7 +65,8 @@ namespace Akka.Persistence.Pulsar.Journal
             long toSequenceNr, long max,
             Action<IPersistentRepresentation> recoveryCallback)
         {
-            await CreateProducer(persistenceId);
+            await CreateProducer(persistenceId, "Journal");
+            await CreateProducer(persistenceId, "Metadata");
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
 
             if (max == 0)
@@ -77,7 +77,7 @@ namespace Akka.Persistence.Pulsar.Journal
             //var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
             //var startMessageId = MessageId.Latest;
 
-            var (_, startMessageId) = _sequenceStore.GetLatestSequenceId(persistenceId);//rough sketchy thoughts
+            var (_, startMessageId) = await ReadMetadata(persistenceId);//rough sketchy thoughts
             var reader = _client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
             var count = 0L;
             await foreach (var message in reader.Messages())
@@ -113,10 +113,19 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             //TODO: how to read the latest known sequence nr in pulsar? Theoretically it's the last element in virtual
             // topic belonging to that persistenceId.
-            var (sequencid, _) = _sequenceStore.GetLatestSequenceId(persistenceId);
-            return await Task.FromResult(sequencid);
+            var (snr, _) = await ReadMetadata(persistenceId);
+            return snr;
         }
-
+        private async Task<(long sequenceNr, MessageId messageId)> ReadMetadata(string persistenceId)
+        {
+            var reader = await GetReader(persistenceId);
+            var readerEnumerator = reader.Messages().GetAsyncEnumerator();
+            await readerEnumerator.MoveNextAsync();
+            var message = readerEnumerator.Current;
+            var sequenceNr = Convert.ToInt64(Encoding.UTF8.GetString(message.Data.ToArray()));
+            var messageId = new MessageId(Convert.ToUInt64(message.Properties["LedgerId"]), Convert.ToUInt64(message.Properties["EntryId"]), Convert.ToInt32(message.Properties["Partition"]), Convert.ToInt32(message.Properties["BatchIndex"]));
+            return (sequenceNr, messageId);
+        }
         /// <summary>
         /// Writes a batch of messages. Each <see cref="AtomicWrite"/> can have one or many <see cref="IPersistentRepresentation"/>
         /// events inside its payload, and they all should be written in atomic fashion (in one transaction, all-or-none).
@@ -135,7 +144,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     var persistentMessages = (IImmutableList<IPersistentRepresentation>) write.Payload;
                     foreach (var message in persistentMessages)
                     {
-                        var producer = await GetProducer(message.PersistenceId);
+                        var producer = await GetProducer(message.PersistenceId, "Journal");
                         var messageBuilder = new MessageBuilder(producer);
                         messageBuilder.Key(message.PersistenceId);
                         messageBuilder.SequenceId((ulong)message.SequenceNr);
@@ -152,8 +161,8 @@ namespace Akka.Persistence.Pulsar.Journal
                         //var journalEntries = ToJournalEntry(message);
                         var messageid = await messageBuilder.Send(journal, CancellationToken.None);//For now
                         //store messageid for later use
-                        _sequenceStore.SaveSequenceId(message.PersistenceId, message.SequenceNr, messageid, DateTime.UtcNow);
-                        //_messageIdStore.SaveMessageId(message.PersistenceId, messageid);
+                        //_sequenceStore.SaveSequenceId(message.PersistenceId, message.SequenceNr, messageid, DateTime.UtcNow);
+                        await SetSequenceNr(message.PersistenceId, message.SequenceNr, messageid);
                           
                     }
                 }
@@ -165,48 +174,18 @@ namespace Akka.Persistence.Pulsar.Journal
 
             return failures.ToImmutable();
         }
-        private JournalEntry ToJournalEntry(IPersistentRepresentation message)
+        
+        private async Task SetSequenceNr(string persistenceid, long sequenceNr, MessageId messageId)
         {
-            object payload = message.Payload;
-            if (message.Payload is Tagged tagged)
-            {
-                payload = tagged.Payload;
-                message = message.WithPayload(payload); // need to update the internal payload when working with tags
-            }
-
-
-            var serializer = _serialization.FindSerializerFor(message);
-            var binary = serializer.ToBinary(message);
-
-
-            return new JournalEntry
-            {
-                Id = message.PersistenceId + "_" + message.SequenceNr,
-                Ordering = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), // Auto-populates with timestamp
-                IsDeleted = message.IsDeleted,
-                Payload = binary,
-                PersistenceId = message.PersistenceId,
-                SequenceNr = message.SequenceNr,
-                Manifest = string.Empty, // don't need a manifest here - it's embedded inside the PersistentMessage
-                Tags = tagged.Tags?.ToList(),
-                SerializerId = null // don't need a serializer ID here either; only for backwards-comat
-            };
-        }
-
-        private async Task SetHighSequenceId(IList<AtomicWrite> messages, MessageId messageId)
-        {
-            var persistenceId = messages.Select(c => c.PersistenceId).First();
-            var highSequenceId = messages.Max(c => c.HighestSequenceNr);
-
-            var metadataEntry = new MetadataEntry
-            {
-                Id = persistenceId,
-                PersistenceId = persistenceId,
-                SequenceNr = highSequenceId,
-                //TimeStamp = messages.Max(c => c..HighestSequenceNr)
-            };
-
-            //await _metadataCollection.Value.ReplaceOneAsync(filter, metadataEntry, new UpdateOptions() { IsUpsert = true });
+            var producer = await GetProducer(persistenceid, "Metadata");
+            var messageBuilder = new MessageBuilder(producer);
+            messageBuilder.Key(persistenceid);
+            messageBuilder.SequenceId((ulong)sequenceNr);
+            messageBuilder.Property("BatchIndex", messageId.BatchIndex.ToString());
+            messageBuilder.Property("EntryId", messageId.EntryId.ToString());
+            messageBuilder.Property("LedgerId", messageId.LedgerId.ToString());
+            messageBuilder.Property("Partition", messageId.Partition.ToString());
+            await messageBuilder.Send(Encoding.UTF8.GetBytes(sequenceNr.ToString()), CancellationToken.None);//For now
         }
 
         /// <summary>
@@ -217,9 +196,9 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             await Task.CompletedTask;
         }
-        private async Task CreateProducer(string persistenceid)
+        private async Task CreateProducer(string persistenceid, string type)
         {
-            var topic = $"persistenceid-{persistenceid}".ToLower();
+            var topic = $"{type}-{persistenceid}".ToLower();
             if(!_producers.ContainsKey(topic))
             {
                 await using var producer = _client.CreateProducer(new ProducerOptions(topic));
@@ -227,9 +206,9 @@ namespace Akka.Persistence.Pulsar.Journal
             }       
 
         }
-        private async Task<IProducer> GetProducer(string persistenceid)
+        private async Task<IProducer> GetProducer(string persistenceid, string type)
         {
-            var topic = $"persistenceid-{persistenceid}".ToLower();
+            var topic = $"{type}-{persistenceid}".ToLower();
             if (!_producers.ContainsKey(topic))
             {
                 await using var producer = _client.CreateProducer(new ProducerOptions(topic));
@@ -237,6 +216,23 @@ namespace Akka.Persistence.Pulsar.Journal
                 return producer;
             }
             return _producers[topic];
+        }
+        private async Task<IReader> GetReader(string persistenceid)
+        {
+            var topic = $"Metadata-{persistenceid}".ToLower();
+            if (!_metaDataReaders.ContainsKey(topic))
+            {
+                var readerOption = new ReaderOptions(MessageId.Latest, topic)
+                {
+                    MessagePrefetchCount = 1
+                };
+                await using var reader = _client.CreateReader(readerOption);
+
+                if (reader != null)
+                    _metaDataReaders[topic] = reader;
+                return reader;
+            }
+            return _metaDataReaders[topic];
         }
         protected override void PostStop()
         {
