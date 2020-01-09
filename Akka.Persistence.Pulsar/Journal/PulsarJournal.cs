@@ -146,7 +146,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     {
                         var producer = await GetProducer(message.PersistenceId, "Journal");
                         var messageBuilder = new MessageBuilder(producer);
-                        messageBuilder.Key(message.PersistenceId);
+                        messageBuilder.Key($"{message.PersistenceId}-{message.SequenceNr}");
                         messageBuilder.SequenceId((ulong)message.SequenceNr);
                         if(message.Payload is Tagged t)
                         {
@@ -179,7 +179,7 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             var producer = await GetProducer(persistenceid, "Metadata");
             var messageBuilder = new MessageBuilder(producer);
-            messageBuilder.Key(persistenceid);
+            messageBuilder.Key($"{persistenceid}-{sequenceNr}");
             messageBuilder.SequenceId((ulong)sequenceNr);
             messageBuilder.Property("BatchIndex", messageId.BatchIndex.ToString());
             messageBuilder.Property("EntryId", messageId.EntryId.ToString());
