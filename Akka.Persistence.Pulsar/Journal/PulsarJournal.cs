@@ -60,6 +60,7 @@ namespace Akka.Persistence.Pulsar.Journal
         /// For every replayed message we need to construct a corresponding <see cref="Persistent"/> instance, that will
         /// be send back to a journal by calling a <paramref name="recoveryCallback"/>.
         /// </summary>
+        //Is ReplayMessagesAsync called once per actor lifetime?
         public override async Task ReplayMessagesAsync(IActorContext context, string persistenceId, long fromSequenceNr,
             long toSequenceNr, long max,
             Action<IPersistentRepresentation> recoveryCallback)
@@ -68,10 +69,10 @@ namespace Akka.Persistence.Pulsar.Journal
             await CreateProducer(persistenceId, "Metadata");
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
 
-            var (_, startMessageId) = await ReadMetadata(persistenceId);//rough sketchy thoughts
+            var (_, startMessageId) = await ReadMetadata(persistenceId, fromSequenceNr);//rough sketchy thoughts
             var reader = _client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
             var messages = reader.Messages()
-                .Where(p => p.Key.Split('-')[0] == persistenceId)
+                //.Where(p => p.Key.Split('-')[0] == persistenceId) No need since we have one topic per persistenceid
                 .Where(x => (x.SequenceId >= (ulong)fromSequenceNr) && (x.SequenceId <= (ulong)toSequenceNr))
                 .Take((int)max)//Felt this is tthe best place
                 .Select(m => {
@@ -101,15 +102,14 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             //TODO: how to read the latest known sequence nr in pulsar? Theoretically it's the last element in virtual
             // topic belonging to that persistenceId.
-            var (snr, _) = await ReadMetadata(persistenceId);
+            var (snr, _) = await ReadMetadata(persistenceId, fromSequenceNr);
             return snr;
         }
-        private async Task<(long sequenceNr, MessageId messageId)> ReadMetadata(string persistenceId)
+        private async Task<(long sequenceNr, MessageId messageId)> ReadMetadata(string persistenceId, long sequence)
         {
             var reader = await GetReader(persistenceId);
-            var readerEnumerator = reader.Messages().GetAsyncEnumerator();
-            await readerEnumerator.MoveNextAsync();
-            var message = readerEnumerator.Current;
+            var message = await reader.Messages()
+                .Where(x => x.SequenceId == (ulong)sequence).FirstAsync();
             var sequenceNr = Convert.ToInt64(Encoding.UTF8.GetString(message.Data.ToArray()));
             var messageId = new MessageId(Convert.ToUInt64(message.Properties["LedgerId"]), Convert.ToUInt64(message.Properties["EntryId"]), Convert.ToInt32(message.Properties["Partition"]), Convert.ToInt32(message.Properties["BatchIndex"]));
             return (sequenceNr, messageId);
