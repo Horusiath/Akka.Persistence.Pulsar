@@ -154,6 +154,7 @@ namespace Akka.Persistence.Pulsar.Journal
                             foreach(var tg in t.Tags)
                             {
                                 messageBuilder.Property($"Tag-{tgs}", tg);//Tag messages
+                                tgs++;
                             }
                         }
                         
