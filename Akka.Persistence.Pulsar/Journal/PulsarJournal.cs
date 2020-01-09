@@ -21,7 +21,6 @@ using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.Event;
 using Akka.Persistence.Journal;
-using Akka.Persistence.Pulsar.CursorStore;
 using DotPulsar;
 using DotPulsar.Abstractions;
 using DotPulsar.Internal;
@@ -69,29 +68,15 @@ namespace Akka.Persistence.Pulsar.Journal
             await CreateProducer(persistenceId, "Metadata");
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
 
-            if (max == 0)
-                return;
-            //according to pulsar doc, messageid is returned for each message produced. The Pulsar system is in charge of creating MessageId
-            //What we can do is to keep track of MessageId(s) and then reconstruct it here
-            //We can get the latest MessageId with MessageId.Latest e.g
-            //var startMessageId = new MessageId(ledgerId, entryId, partition, batchIndex); //TODO: how to config them properly in Pulsar?
-            //var startMessageId = MessageId.Latest;
-
             var (_, startMessageId) = await ReadMetadata(persistenceId);//rough sketchy thoughts
             var reader = _client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
-            var count = 0L;
-            await foreach (var message in reader.Messages())
-            {
-                // check if we've hit max recovery
-                if (count >= max)
-                    return;
-                ++count;
-                var deserialized = _serialization.PersistentFromBytes(message.Data.ToArray());
-                // Write the new persistent because it sets the sender as deadLetters which is not correct
-                if((deserialized.SequenceNr >= fromSequenceNr) && (deserialized.SequenceNr <= toSequenceNr))
-                {
-                    var persistent =
-                    new Persistent(
+            var messages = reader.Messages()
+                .Where(p => p.Key.Split('-')[0] == persistenceId)
+                .Where(x => (x.SequenceId >= (ulong)fromSequenceNr) && (x.SequenceId <= (ulong)toSequenceNr))
+                .Take((int)max)//Felt this is tthe best place
+                .Select(m => {
+                    var deserialized = _serialization.PersistentFromBytes(m.Data.ToArray());
+                    return new Persistent(
                         deserialized.Payload,
                         deserialized.SequenceNr,
                         deserialized.PersistenceId,
@@ -99,9 +84,12 @@ namespace Akka.Persistence.Pulsar.Journal
                         deserialized.IsDeleted,
                         ActorRefs.NoSender,
                         deserialized.WriterGuid);
-                    recoveryCallback(persistent);
-                }
+                });
+            await foreach(var p in messages)
+            {
+                recoveryCallback(p);
             }
+            
         }
 
         /// <summary>
