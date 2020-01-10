@@ -161,6 +161,7 @@ namespace Akka.Persistence.Pulsar.Journal
                         
                         var journal = _serialization.PersistentToBytes((IPersistentRepresentation)message.Payload);
                         //var journalEntries = ToJournalEntry(message);
+                        //Producer batch publishing will be helpful here
                         var messageid = await messageBuilder.Send(journal, CancellationToken.None);//For now
                         //store messageid for later use
                         //_sequenceStore.SaveSequenceId(message.PersistenceId, message.SequenceNr, messageid, DateTime.UtcNow);
