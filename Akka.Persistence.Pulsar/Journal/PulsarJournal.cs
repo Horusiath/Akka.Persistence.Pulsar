@@ -79,8 +79,7 @@ namespace Akka.Persistence.Pulsar.Journal
                 .Where(x => (x.SequenceId >= (ulong)fromSequenceNr) && (x.SequenceId <= (ulong)toSequenceNr))
                 .TakeWhile(_=> 
                 {
-                    //Do I need to worry about thread-safety?
-                    
+                    //Do I need to worry about thread-safety?                    
                     var ct = count;
                     var cont = ct <= max;
                     count++;
@@ -199,7 +198,7 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             //Pulsar stores unacknowledged messages forever
             //We can delete messages if retention policy is not set by using pulsar consumer
-            var option = new ConsumerOptions($"persistent-consumer-{persistenceId}", GetTopic($"Journal-{persistenceId}".ToLower()));
+            var option = new ConsumerOptions($"persistent-consumer-{persistenceId}", Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower()));
             await using var consumer = _client.CreateConsumer(option);
             var messages = consumer.Messages()
                 .Where(x => x.SequenceId <= (ulong)toSequenceNr);
@@ -212,7 +211,7 @@ namespace Akka.Persistence.Pulsar.Journal
         }
         private async Task CreateProducer(string persistenceid, string type)
         {
-            var topic = GetTopic($"{type}-{persistenceid}".ToLower());
+            var topic = Utils.Journal.PrepareTopic($"{type}-{persistenceid}".ToLower());
             if (!_producers.ContainsKey(topic))
             {
                 await using var producer = _client.CreateProducer(new ProducerOptions(topic));
@@ -222,7 +221,7 @@ namespace Akka.Persistence.Pulsar.Journal
         }
         private async Task<IProducer> GetProducer(string persistenceid, string type)
         {
-            var topic = GetTopic($"{type}-{persistenceid}".ToLower());
+            var topic = Utils.Journal.PrepareTopic($"{type}-{persistenceid}".ToLower());
             if (!_producers.ContainsKey(topic))
             {
                 await using var producer = _client.CreateProducer(new ProducerOptions(topic));
@@ -233,7 +232,7 @@ namespace Akka.Persistence.Pulsar.Journal
         }
         private async Task<IReader> GetReader(string persistenceid)
         {
-            var topic = GetTopic($"Metadata-{persistenceid}".ToLower());
+            var topic = Utils.Journal.PrepareTopic($"Metadata-{persistenceid}".ToLower());
             if (!_metaDataReaders.ContainsKey(topic))
             {
                 var readerOption = new ReaderOptions(MessageId.Latest, topic)
@@ -252,10 +251,6 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             base.PostStop();
             _client.DisposeAsync().GetAwaiter();
-        }
-        private string GetTopic(string topic)
-        {
-            return $"persistent://public/default/{topic}"; //very likely to change to be more dynamic
         }
     }
 }

@@ -48,7 +48,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
             //Pulsar stores unacknowledge messages forever
             //We can delete messages if retention policy is not set by using pulsar consumer
             
-            var option = new ConsumerOptions($"snapshot-consumer-{metadata.PersistenceId}", GetTopic($"snapshot-{metadata.PersistenceId}".ToLower()));
+            var option = new ConsumerOptions($"snapshot-consumer-{metadata.PersistenceId}", Utils.Journal.PrepareTopic($"snapshot-{metadata.PersistenceId}".ToLower()));
             await using var consumer = _client.CreateConsumer(option);
             var messages = consumer.Messages()
                 .Where(x => x.SequenceId == (ulong)metadata.SequenceNr);
@@ -64,7 +64,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
         {
             //Pulsar stores unacknowledged messages forever
             //We can delete messages if retention policy is not set by using pulsar consumer
-            var option = new ConsumerOptions($"snapshot-consumer-{persistenceId}", GetTopic($"snapshot-{persistenceId}".ToLower()));
+            var option = new ConsumerOptions($"snapshot-consumer-{persistenceId}", Utils.Journal.PrepareTopic($"snapshot-{persistenceId}".ToLower()));
             await using var consumer = _client.CreateConsumer(option);
             var messages = consumer.Messages()
                 .Where(x => x.SequenceId <= (ulong)criteria.MaxSequenceNr /*&& x.SequenceId >= (ulong)(criteria.MinSequenceNr)*/)
@@ -110,7 +110,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
         }
         private async Task<IReader> GetReader(string persistenceid)
         {
-            var topic = GetTopic($"snapshot-{persistenceid}".ToLower());
+            var topic = Utils.Journal.PrepareTopic($"snapshot-{persistenceid}".ToLower());
             if(!_snapshotReaders.ContainsKey(topic))
             {
                 var readerOption = new ReaderOptions(MessageId.Latest, topic)
@@ -127,7 +127,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
         }
         private async Task<IProducer> GetProducer(string persistenceid)
         {
-            var topic = GetTopic($"snapshot-{persistenceid}".ToLower());
+            var topic = Utils.Journal.PrepareTopic($"snapshot-{persistenceid}".ToLower());
             if (!_snapshotProducers.ContainsKey(topic))
             {
                 await using var producer = _client.CreateProducer(new ProducerOptions(topic));
@@ -142,9 +142,6 @@ namespace Akka.Persistence.Pulsar.Snapshot
             base.PostStop();
             _client.DisposeAsync();
         }
-        private string GetTopic(string topic)
-        {
-            return $"persistent://public/default/{topic}"; //very likely to change to be more dynamic
-        }
+        
     }
 }
