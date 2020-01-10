@@ -5,6 +5,7 @@ using DotPulsar.Abstractions;
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Akka.Persistence.Pulsar.Snapshot
@@ -42,16 +43,38 @@ namespace Akka.Persistence.Pulsar.Snapshot
         {
             base.PreStart();
         }
-        protected override Task DeleteAsync(SnapshotMetadata metadata)
+        protected override async Task DeleteAsync(SnapshotMetadata metadata)
         {
-            //Probably Pulsar Message retention and expiry?
-            return Task.CompletedTask;
+            //Pulsar stores unacknowledge messages forever
+            //We can delete messages if retention policy is not set by using pulsar consumer
+            
+            var option = new ConsumerOptions($"snapshot-consumer-{metadata.PersistenceId}", GetTopic($"snapshot-{metadata.PersistenceId}".ToLower()));
+            await using var consumer = _client.CreateConsumer(option);
+            var messages = consumer.Messages()
+                .Where(x => x.SequenceId == (ulong)metadata.SequenceNr);
+            await foreach(var message in messages)
+            {
+                await consumer.Acknowledge(message.MessageId); //Acknowledged messages are deleted
+            }
+            await consumer.Unsubscribe();
+            await consumer.DisposeAsync();
         }
 
-        protected override Task DeleteAsync(string persistenceId, SnapshotSelectionCriteria criteria)
+        protected override async Task DeleteAsync(string persistenceId, SnapshotSelectionCriteria criteria)
         {
-            //Probably Pulsar Message retention and expiry?
-            return Task.CompletedTask;
+            //Pulsar stores unacknowledged messages forever
+            //We can delete messages if retention policy is not set by using pulsar consumer
+            var option = new ConsumerOptions($"snapshot-consumer-{persistenceId}", GetTopic($"snapshot-{persistenceId}".ToLower()));
+            await using var consumer = _client.CreateConsumer(option);
+            var messages = consumer.Messages()
+                .Where(x => x.SequenceId <= (ulong)criteria.MaxSequenceNr /*&& x.SequenceId >= (ulong)(criteria.MinSequenceNr)*/)
+                .Where(t => t.EventTime <= (ulong)criteria.MaxTimeStamp.Ticks);
+            await foreach (var message in messages)
+            {
+                await consumer.Acknowledge(message.MessageId); //Acknowledged messages are deleted
+            }
+            await consumer.Unsubscribe();//is this good?
+            await consumer.DisposeAsync();//is this good?
         }
 
         protected override async Task<SelectedSnapshot> LoadAsync(string persistenceId, SnapshotSelectionCriteria criteria)
@@ -59,9 +82,10 @@ namespace Akka.Persistence.Pulsar.Snapshot
             //This needs testing to see if this can be relied on!
             //Other implementation filtered with sequenceid and timestamp, do we need same here?
             var reader = await GetReader(persistenceId);
-            var readerEnumerator = reader.Messages().GetAsyncEnumerator();
-            await readerEnumerator.MoveNextAsync();
-            Message message = readerEnumerator.Current;
+            var message = await reader.Messages()
+                .Where(x => x.SequenceId <= (ulong)criteria.MaxSequenceNr)
+                .Where(t => t.EventTime <= (ulong)criteria.MaxTimeStamp.Ticks)
+                .FirstOrDefaultAsync();
             var snapshot = _serialization.SnapshotFromBytes(message.Data.ToArray());
             SelectedSnapshot selectedSnapshot = new SelectedSnapshot(
             new SnapshotMetadata(
@@ -69,18 +93,6 @@ namespace Akka.Persistence.Pulsar.Snapshot
                 (long)message.SequenceId,
                 new DateTime((long)message.EventTime)),
             snapshot.Data);
-            /*await foreach(var message in reader.Messages())
-            {
-                //This is hoping that only one message was retrieved since prefetch count was set to 1;
-                //Yet to understand if this works that way
-                var snapshot = _serialization.SnapshotFromBytes(message.Data.ToArray());
-                selectedSnapshot = new SelectedSnapshot(
-                            new SnapshotMetadata(
-                                persistenceId,
-                                (long)message.SequenceId,
-                                new DateTime((long)message.EventTime)),
-                            snapshot.Data);
-            }*/
             return selectedSnapshot;
         }
 
@@ -97,7 +109,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
         }
         private async Task<IReader> GetReader(string persistenceid)
         {
-            var topic = $"snapshot-{persistenceid}".ToLower();
+            var topic = GetTopic($"snapshot-{persistenceid}".ToLower());
             if(!_snapshotReaders.ContainsKey(topic))
             {
                 var readerOption = new ReaderOptions(MessageId.Latest, topic)
@@ -114,7 +126,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
         }
         private async Task<IProducer> GetProducer(string persistenceid)
         {
-            var topic = $"snapshot-{persistenceid}".ToLower();
+            var topic = GetTopic($"snapshot-{persistenceid}".ToLower());
             if (!_snapshotProducers.ContainsKey(topic))
             {
                 await using var producer = _client.CreateProducer(new ProducerOptions(topic));
@@ -129,6 +141,9 @@ namespace Akka.Persistence.Pulsar.Snapshot
             base.PostStop();
             _client.DisposeAsync();
         }
-        
+        private string GetTopic(string topic)
+        {
+            return $"persistent://public/default/{topic}"; //very likely to change to be more dynamic
+        }
     }
 }
