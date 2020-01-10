@@ -85,6 +85,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
             var message = await reader.Messages()
                 .Where(x => x.SequenceId <= (ulong)criteria.MaxSequenceNr)
                 .Where(t => t.EventTime <= (ulong)criteria.MaxTimeStamp.Ticks)
+                .OrderByDescending(o => o.SequenceId)
                 .FirstOrDefaultAsync();
             var snapshot = _serialization.SnapshotFromBytes(message.Data.ToArray());
             SelectedSnapshot selectedSnapshot = new SelectedSnapshot(
