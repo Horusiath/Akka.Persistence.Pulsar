@@ -91,8 +91,17 @@ namespace Akka.Persistence.Pulsar.Query
         /// This stream DOESN'T stop when we read all events currently stored. If you want to read only events
         /// currently stored use <see cref="CurrentEventsByTag"/>.
         /// </summary>
+        /// //When https://github.com/danske-commodities/dotpulsar/issues/5 is done then this could be possible
         public Source<EventEnvelope, NotUsed> EventsByTag(string tag, Offset offset)
         {
+            /*
+             // Subscribe to all topics in a namespace
+                Pattern allTopicsInNamespace = Pattern.compile("persistent://public/default/.*");
+                Consumer allTopicsConsumer = consumerBuilder
+                .topicsPattern(allTopicsInNamespace)
+                .subscribe();
+             
+             */
             throw new System.NotImplementedException();
         }
 
@@ -105,15 +114,24 @@ namespace Akka.Persistence.Pulsar.Query
         /// This stream stops when we read all events currently stored. If you want to read all events (also future ones)
         /// use <see cref="CurrentEventsByTag"/>.
         /// </summary>
+        /// //When https://github.com/danske-commodities/dotpulsar/issues/5 is done then this could be possible
         public Source<EventEnvelope, NotUsed> CurrentEventsByTag(string tag, Offset offset)
         {
+            /*
+             // Subscribe to all topics in a namespace
+                Pattern allTopicsInNamespace = Pattern.compile("persistent://public/default/.*");
+                Consumer allTopicsConsumer = consumerBuilder
+                .topicsPattern(allTopicsInNamespace)
+                .subscribe();
+             
+             */
             throw new System.NotImplementedException();
         }
 
         /// <summary>
         /// Returns a stream of all known persistence IDs. This stream is not supposed to send duplicates.
-        /// </summary>
-        //When https://github.com/danske-commodities/dotpulsar/issues/5 is done then this could be possible
+        /// </summary>//When https://github.com/danske-commodities/dotpulsar/issues/5 is done then this could be possible
+        
         
         public Source<string, NotUsed> CurrentPersistenceIds()
         {
