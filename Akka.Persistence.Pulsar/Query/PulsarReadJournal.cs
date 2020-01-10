@@ -14,6 +14,7 @@ using Akka.Persistence.Query;
 using Akka.Streams.Dsl;
 using DotPulsar;
 using DotPulsar.Internal;
+using System;
 using System.Buffers;
 using System.Linq;
 
@@ -74,7 +75,7 @@ namespace Akka.Persistence.Pulsar.Query
             var topic = Utils.Journal.PrepareTopic($"Journal-{persistenceid}".ToLower());
             var client = settings.CreateClient();
             var startMessageId = new MessageId((ulong)fromSequenceNr, (ulong)fromSequenceNr, -1, -1);
-            var reader = client.CreateReader(new ReaderOptions(startMessageId, persistenceid));
+            var reader = client.CreateReader(new ReaderOptions(startMessageId, topic));
             return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages()
                 .Where(x => (x.SequenceId >= (ulong)fromSequenceNr) && (x.SequenceId <= (ulong)toSequenceNr))))                
                 .Select(message =>
@@ -103,6 +104,19 @@ namespace Akka.Persistence.Pulsar.Query
                 .subscribe();
              
              */
+            //leaving this so for future reference when it becomes possible
+            /*var seq = Convert.ToUInt64(offset);//not sure here
+            var topics = Utils.Journal.PrepareTopic($"Journal-*".ToLower());
+            var client = settings.CreateClient();
+            var startMessageId = new MessageId(seq, seq, -1, -1);
+            var reader = client.CreateReader(new ReaderOptions(startMessageId, topics));
+            return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages()
+                .Where(x => x.SequenceId >=  seq)))
+                .Where(t => t.Properties.Values.Contains(tag))
+                .Select(message =>
+                {
+                    return new EventEnvelope(offset: new Sequence(_serialization.PersistentFromBytes(message.Data.ToArray()).SequenceNr), message.Key.Split('-')[0], (long)message.SequenceId, message.Data);
+                });*/
             throw new System.NotImplementedException();
         }
 
