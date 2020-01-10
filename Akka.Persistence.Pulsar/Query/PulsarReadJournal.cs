@@ -13,6 +13,7 @@ using Akka.Persistence.Pulsar.CursorStore;
 using Akka.Persistence.Query;
 using Akka.Streams.Dsl;
 using DotPulsar;
+using DotPulsar.Internal;
 using System.Buffers;
 using System.Linq;
 
