@@ -26,15 +26,11 @@ namespace Akka.Persistence.Pulsar.Query
         private readonly ActorSystem system;
         private readonly PulsarSettings settings;
         private SerializationHelper _serialization;
-        //private readonly IMessageIdStore _messageIdStore;
-        private readonly ISequenceStore _sequenceStore;
 
-        public PulsarReadJournal(ActorSystem system, PulsarSettings settings, ISequenceStore sequenceStore)
+        public PulsarReadJournal(ActorSystem system, PulsarSettings settings)
         {
             this.system = system;
             this.settings = settings;
-            //_messageIdStore = messageIdStore;
-            _sequenceStore = sequenceStore;
             _serialization = new SerializationHelper(system);
         }
     public const string Identifier = "akka.persistence.query.journal.pulsar";
@@ -117,6 +113,8 @@ namespace Akka.Persistence.Pulsar.Query
         /// <summary>
         /// Returns a stream of all known persistence IDs. This stream is not supposed to send duplicates.
         /// </summary>
+        //When https://github.com/danske-commodities/dotpulsar/issues/5 is done then this could be possible
+        
         public Source<string, NotUsed> CurrentPersistenceIds()
         {
             throw new System.NotImplementedException();
@@ -127,7 +125,6 @@ namespace Akka.Persistence.Pulsar.Query
     {
         private readonly ExtendedActorSystem system;
         private readonly PulsarSettings settings;
-        private readonly ISequenceStore _sequenceStore;
 
         public PulsarReadJournalProvider(ExtendedActorSystem system, Config config, ISequenceStore sequenceStore)
         {
@@ -135,6 +132,6 @@ namespace Akka.Persistence.Pulsar.Query
             this.settings = new PulsarSettings(config);
         }
 
-        public IReadJournal GetReadJournal() => new PulsarReadJournal(system, settings, _sequenceStore);
+        public IReadJournal GetReadJournal() => new PulsarReadJournal(system, settings);
     }
 }
