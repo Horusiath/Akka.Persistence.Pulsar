@@ -1,8 +1,13 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Akka.Persistence.Pulsar", "Akka.Persistence.Pulsar\Akka.Persistence.Pulsar.csproj", "{B266FA52-24BF-477B-AEA9-5C50EA06F2A7}"
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29609.76
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Akka.Persistence.Pulsar", "Akka.Persistence.Pulsar\Akka.Persistence.Pulsar.csproj", "{B266FA52-24BF-477B-AEA9-5C50EA06F2A7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Akka.Persistence.Pulsar.Tests", "Akka.Persistence.Pulsar.Tests\Akka.Persistence.Pulsar.Tests.csproj", "{43F06A8C-762B-4393-8AC1-06229C54D858}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Akka.Persistence.Pulsar.Tests", "Akka.Persistence.Pulsar.Tests\Akka.Persistence.Pulsar.Tests.csproj", "{43F06A8C-762B-4393-8AC1-06229C54D858}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Pulsar Sample", "Pulsar Sample\Pulsar Sample.csproj", "{823B3517-BBF8-4F9F-B256-407F9286349E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -18,5 +23,15 @@ Global
 		{43F06A8C-762B-4393-8AC1-06229C54D858}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{43F06A8C-762B-4393-8AC1-06229C54D858}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{43F06A8C-762B-4393-8AC1-06229C54D858}.Release|Any CPU.Build.0 = Release|Any CPU
+		{823B3517-BBF8-4F9F-B256-407F9286349E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{823B3517-BBF8-4F9F-B256-407F9286349E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{823B3517-BBF8-4F9F-B256-407F9286349E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{823B3517-BBF8-4F9F-B256-407F9286349E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {9E88732C-8A6D-49F5-A14B-4BD003509CE6}
 	EndGlobalSection
 EndGlobal
