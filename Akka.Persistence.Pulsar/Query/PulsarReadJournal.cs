@@ -10,6 +10,7 @@
 using Akka.Actor;
 using Akka.Configuration;
 using Akka.Persistence.Pulsar.CursorStore;
+using Akka.Persistence.Pulsar.CursorStore.Impl;
 using Akka.Persistence.Query;
 using Akka.Streams.Dsl;
 using DotPulsar;
@@ -28,12 +29,14 @@ namespace Akka.Persistence.Pulsar.Query
         private readonly ActorSystem system;
         private readonly PulsarSettings settings;
         private SerializationHelper _serialization;
+        private IMetadataStore _metadataStore;
 
         public PulsarReadJournal(ActorSystem system, PulsarSettings settings)
         {
             this.system = system;
             this.settings = settings;
             _serialization = new SerializationHelper(system);
+            _metadataStore = new MetadataStore();
         }
     public const string Identifier = "akka.persistence.query.journal.pulsar";
 
@@ -49,13 +52,10 @@ namespace Akka.Persistence.Pulsar.Query
         {
             var topic = Utils.Journal.PrepareTopic($"Journal-{persistenceid}".ToLower()); 
             var client = settings.CreateClient();
-            //var (_, startMessageId) = _sequenceStore.GetLatestSequenceId(topic);
-            var startMessageId = new MessageId((ulong)fromSequenceNr, (ulong)fromSequenceNr, -1, -1);
-            var reader = client.CreateReader(new ReaderOptions(startMessageId, topic));
+            var (start, end) = _metadataStore.GetStartMessageIdRange(persistenceid, fromSequenceNr, toSequenceNr).Result;//https://github.com/danske-commodities/dotpulsar/issues/12
+            var reader = client.CreateReader(new ReaderOptions(start, topic));
             return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages()
-                .Where(x => (x.SequenceId >= (ulong)fromSequenceNr) 
-                && 
-                x.SequenceId <= ulong.MaxValue)))
+                .Where(x => (x.MessageId.LedgerId >= start.LedgerId) && (x.MessageId.EntryId >= start.EntryId))))
                 .Select(message =>
                 {
                     return new EventEnvelope(offset: new Sequence(_serialization.PersistentFromBytes(message.Data.ToArray()).SequenceNr), persistenceid, (long)message.SequenceId, message.Data);
@@ -74,10 +74,11 @@ namespace Akka.Persistence.Pulsar.Query
         {
             var topic = Utils.Journal.PrepareTopic($"Journal-{persistenceid}".ToLower());
             var client = settings.CreateClient();
-            var startMessageId = new MessageId((ulong)fromSequenceNr, (ulong)fromSequenceNr, -1, -1);
-            var reader = client.CreateReader(new ReaderOptions(startMessageId, topic));
+            var (start, end) = _metadataStore.GetStartMessageIdRange(persistenceid, fromSequenceNr, toSequenceNr).Result;//https://github.com/danske-commodities/dotpulsar/issues/12
+            var reader = client.CreateReader(new ReaderOptions(start, topic));
             return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages()
-                .Where(x => (x.SequenceId >= (ulong)fromSequenceNr) && (x.SequenceId <= (ulong)toSequenceNr))))                
+                .Where(x => (x.MessageId.LedgerId >= start.LedgerId) && (x.MessageId.EntryId >= start.EntryId))
+                .Where(x => (x.MessageId.LedgerId <= end.LedgerId) && (x.MessageId.EntryId <= end.EntryId))))
                 .Select(message =>
                 {
                     return new EventEnvelope(offset: new Sequence(_serialization.PersistentFromBytes(message.Data.ToArray()).SequenceNr), persistenceid, (long)message.SequenceId, message.Data);
@@ -159,7 +160,7 @@ namespace Akka.Persistence.Pulsar.Query
         private readonly ExtendedActorSystem system;
         private readonly PulsarSettings settings;
 
-        public PulsarReadJournalProvider(ExtendedActorSystem system, Config config, ISequenceStore sequenceStore)
+        public PulsarReadJournalProvider(ExtendedActorSystem system, Config config, IMetadataStore sequenceStore)
         {
             this.system = system;
             this.settings = new PulsarSettings(config);

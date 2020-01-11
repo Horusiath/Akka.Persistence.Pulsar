@@ -15,12 +15,13 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.Event;
 using Akka.Persistence.Journal;
+using Akka.Persistence.Pulsar.CursorStore;
+using Akka.Persistence.Pulsar.CursorStore.Impl;
 using DotPulsar;
 using DotPulsar.Abstractions;
 using DotPulsar.Internal;
@@ -32,8 +33,8 @@ namespace Akka.Persistence.Pulsar.Journal
         private readonly PulsarSettings settings;
         private readonly ILoggingAdapter _log = Context.GetLogger();
         private readonly IPulsarClient _client;
+        private readonly IMetadataStore _metadataStore;
         private ConcurrentDictionary<string, IProducer> _producers = new ConcurrentDictionary<string, IProducer>();
-        private ConcurrentDictionary<string, IReader> _metaDataReaders = new ConcurrentDictionary<string, IReader>();
 
         
         private SerializationHelper _serialization;
@@ -43,6 +44,7 @@ namespace Akka.Persistence.Pulsar.Journal
         public PulsarJournal() : this(PulsarPersistence.Get(Context.System).JournalSettings)
         {
             _serialization = new SerializationHelper(Context.System);
+            _metadataStore = new MetadataStore();//Could also use Akka extension to inject implementation
         }
 
         public PulsarJournal(PulsarSettings settings)
@@ -70,13 +72,12 @@ namespace Akka.Persistence.Pulsar.Journal
             await CreateProducer(persistenceId, "Metadata");
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
 
-            //Looking at the implementation of MessageId, we could theoritically use akka sequencenr
-            //var (_, startMessageId) = await ReadMetadata(persistenceId, fromSequenceNr);//rough sketchy thoughts
+            var (start, end) = await _metadataStore.GetStartMessageIdRange(persistenceId, fromSequenceNr, toSequenceNr);//https://github.com/danske-commodities/dotpulsar/issues/12
             var count = 0L;
-            var startMessageId = new MessageId((ulong)fromSequenceNr, (ulong)fromSequenceNr, -1, -1);// This is how MessageId.Latest and MessageId.Earliest are implemented. Is there any thread-off?
-            var reader = _client.CreateReader(new ReaderOptions(startMessageId, persistenceId));
+            var reader = _client.CreateReader(new ReaderOptions(start, Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower())));
             var messages = reader.Messages()
-                .Where(x => (x.SequenceId >= (ulong)fromSequenceNr) && (x.SequenceId <= (ulong)toSequenceNr))
+                .Where(x => (x.MessageId.LedgerId >= start.LedgerId) && (x.MessageId.EntryId >= start.EntryId))
+                .Where(x => (x.MessageId.LedgerId <= end.LedgerId) && (x.MessageId.EntryId <= end.EntryId))
                 .TakeWhile(_=> 
                 {
                     //Do I need to worry about thread-safety?                    
@@ -113,18 +114,8 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             //TODO: how to read the latest known sequence nr in pulsar? Theoretically it's the last element in virtual
             // topic belonging to that persistenceId.
-            var (snr, _) = await ReadMetadata(persistenceId, fromSequenceNr);
+            var (snr, _) = await _metadataStore.GetLatestStartMessageId(persistenceId);
             return snr;
-        }
-        private async Task<(long sequenceNr, MessageId messageId)> ReadMetadata(string persistenceId, long sequence)
-        {
-            var reader = await GetReader(persistenceId);
-            var message = await reader.Messages()
-                .Where(x => x.SequenceId == (ulong)sequence).FirstAsync();
-            var sequenceNr = Convert.ToInt64(Encoding.UTF8.GetString(message.Data.ToArray()));
-            //var messageId = new MessageId(Convert.ToUInt64(message.Properties["LedgerId"]), Convert.ToUInt64(message.Properties["EntryId"]), Convert.ToInt32(message.Properties["Partition"]), Convert.ToInt32(message.Properties["BatchIndex"]));
-            var messageId = new MessageId((ulong)sequenceNr, (ulong)sequenceNr, -1, -1);
-            return (sequenceNr, messageId);
         }
         /// <summary>
         /// Writes a batch of messages. Each <see cref="AtomicWrite"/> can have one or many <see cref="IPersistentRepresentation"/>
@@ -159,13 +150,9 @@ namespace Akka.Persistence.Pulsar.Journal
                         }
                         
                         var journal = _serialization.PersistentToBytes((IPersistentRepresentation)message.Payload);
-                        //var journalEntries = ToJournalEntry(message);
-                        //Producer batch publishing will be helpful here
                         var messageid = await messageBuilder.Send(journal, CancellationToken.None);//For now
-                        //store messageid for later use
-                        //_sequenceStore.SaveSequenceId(message.PersistenceId, message.SequenceNr, messageid, DateTime.UtcNow);
-                        await SetSequenceNr(message.PersistenceId, message.SequenceNr, messageid);
-                          
+                        await SaveMessageId(message.PersistenceId, message.SequenceNr, messageid, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());// https://github.com/danske-commodities/dotpulsar/issues/12
+
                     }
                 }
                 catch (Exception e)
@@ -177,17 +164,9 @@ namespace Akka.Persistence.Pulsar.Journal
             return failures.ToImmutable();
         }
         
-        private async Task SetSequenceNr(string persistenceid, long sequenceNr, MessageId messageId)
+        private async Task SaveMessageId(string persistenceid, long sequenceNr, MessageId messageId, long eventTime)
         {
-            var producer = await GetProducer(persistenceid, "Metadata");
-            var messageBuilder = new MessageBuilder(producer);
-            messageBuilder.Key($"{persistenceid}-{sequenceNr}");
-            messageBuilder.SequenceId((ulong)sequenceNr);
-            /*messageBuilder.Property("BatchIndex", messageId.BatchIndex.ToString());
-            messageBuilder.Property("EntryId", messageId.EntryId.ToString());
-            messageBuilder.Property("LedgerId", messageId.LedgerId.ToString());
-            messageBuilder.Property("Partition", messageId.Partition.ToString());*/
-            await messageBuilder.Send(Encoding.UTF8.GetBytes(sequenceNr.ToString()), CancellationToken.None);//For now
+           await _metadataStore.SaveStartMessageId(persistenceid, sequenceNr, messageId, eventTime);
         }
 
         /// <summary>
@@ -230,23 +209,7 @@ namespace Akka.Persistence.Pulsar.Journal
             }
             return _producers[topic];
         }
-        private async Task<IReader> GetReader(string persistenceid)
-        {
-            var topic = Utils.Journal.PrepareTopic($"Metadata-{persistenceid}".ToLower());
-            if (!_metaDataReaders.ContainsKey(topic))
-            {
-                var readerOption = new ReaderOptions(MessageId.Latest, topic)
-                {
-                    MessagePrefetchCount = 1
-                };
-                await using var reader = _client.CreateReader(readerOption);
-
-                if (reader != null)
-                    _metaDataReaders[topic] = reader;
-                return reader;
-            }
-            return _metaDataReaders[topic];
-        }
+        
         protected override void PostStop()
         {
             base.PostStop();
