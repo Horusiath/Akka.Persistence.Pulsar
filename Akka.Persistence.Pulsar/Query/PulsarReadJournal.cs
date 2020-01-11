@@ -36,7 +36,7 @@ namespace Akka.Persistence.Pulsar.Query
             this.system = system;
             this.settings = settings;
             _serialization = new SerializationHelper(system);
-            _metadataStore = new MetadataStore();
+            _metadataStore = new MetadataStore(system);
         }
     public const string Identifier = "akka.persistence.query.journal.pulsar";
 

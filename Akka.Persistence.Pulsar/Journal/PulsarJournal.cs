@@ -44,7 +44,7 @@ namespace Akka.Persistence.Pulsar.Journal
         public PulsarJournal() : this(PulsarPersistence.Get(Context.System).JournalSettings)
         {
             _serialization = new SerializationHelper(Context.System);
-            _metadataStore = new MetadataStore();//Could also use Akka extension to inject implementation
+            _metadataStore = new MetadataStore(Context.System);//Could also use Akka extension to inject implementation
         }
 
         public PulsarJournal(PulsarSettings settings)
