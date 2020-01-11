@@ -6,4 +6,10 @@
     <RootNamespace>Pulsar_Sample</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <None Update="pulsar docker run.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
