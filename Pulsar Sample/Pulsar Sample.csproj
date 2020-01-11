@@ -1,10 +1,14 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>netcoreapp3.1</TargetFramework>
     <RootNamespace>Pulsar_Sample</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Akka.Persistence.Pulsar\Akka.Persistence.Pulsar.csproj" />
+  </ItemGroup>
 
   <ItemGroup>
     <None Update="pulsar docker run.txt">
