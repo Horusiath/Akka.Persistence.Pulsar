@@ -7,10 +7,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.Reactive" Version="4.3.2" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Akka.Persistence.Pulsar\Akka.Persistence.Pulsar.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="host.hocon">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="pulsar docker run.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

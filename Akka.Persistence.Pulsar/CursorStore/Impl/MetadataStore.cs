@@ -29,11 +29,11 @@ namespace Akka.Persistence.Pulsar.CursorStore.Impl
                 // prepare schema
                 _session.Execute(new SimpleStatement("CREATE KEYSPACE IF NOT EXISTS Pulsar WITH replication = { 'class': 'SimpleStrategy', 'replication_factor': '1' }"));
                 _session.Execute(new SimpleStatement("USE Pulsar"));
-                _session.Execute(new SimpleStatement("CREATE TABLE IF NOT EXISTS meta_data(sequence_id bigint, event_time bigint, persistence_id text, ledger_id bigint, entry_id bigint, partition int, batch_index int, PRIMARY KEY(sequence_id, event_time, persistence_id))"));
-                _saveMessageIdStatement = _session.Prepare("UPDATE meta_data SET event_time = ?, ledger_id = ?, entry_id = ?, partition = ?, batch_index = ? WHERE sequence_id = ? AND persistence_id = ?");
-                _latestStartMessageIdStatement = _session.Prepare("SELECT * FROM meta_data WHERE persistence_id = ? ORDER BY sequence_id DESC LIMIT 1 ALLOW FILTERING");
+                _session.Execute(new SimpleStatement("CREATE TABLE IF NOT EXISTS meta_data(sequence_id bigint, event_time bigint, persistence_id text, ledger_id bigint, entry_id bigint, partition int, batch_index int, PRIMARY KEY((persistence_id), sequence_id)) WITH CLUSTERING ORDER BY (sequence_id DESC)"));
+                _saveMessageIdStatement = _session.Prepare("UPDATE meta_data SET event_time = ?, ledger_id = ?, entry_id = ?, partition = ?, batch_index = ? WHERE sequence_id = ? AND persistence_id = ? AND event_time = ?");
+                _latestStartMessageIdStatement = _session.Prepare("SELECT * FROM meta_data WHERE persistence_id = ? LIMIT 1 ALLOW FILTERING");
                 _startMessageIdRangeStatement = _session.Prepare("SELECT * FROM meta_data WHERE persistence_id = ? AND sequence_id = ?");
-                _startMessageIdRangeDateStatement = _session.Prepare("SELECT * FROM meta_data WHERE persistence_id = ? AND event_time BETWEEN ? AND ? ORDER BY event_time DESC");
+                _startMessageIdRangeDateStatement = _session.Prepare("SELECT * FROM meta_data WHERE persistence_id = ? AND event_time IN(?,?)");
             }
             catch (Exception ex)
             {

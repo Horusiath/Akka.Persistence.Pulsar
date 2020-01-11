@@ -8,7 +8,6 @@
 #endregion
 
 using Akka.Actor;
-using Akka.Configuration;
 using Akka.Persistence.Pulsar.CursorStore;
 using Akka.Persistence.Pulsar.CursorStore.Impl;
 using Akka.Persistence.Query;
@@ -38,7 +37,7 @@ namespace Akka.Persistence.Pulsar.Query
             _serialization = new SerializationHelper(system);
             _metadataStore = new MetadataStore(system);
         }
-    public const string Identifier = "akka.persistence.query.journal.pulsar";
+        public const string Identifier = "akka.persistence.query.journal.pulsar";
 
         /// <summary>
         /// Streams all events stored for a given <paramref name="persistenceId"/> (pulsar virtual topic?). This is a
@@ -153,19 +152,5 @@ namespace Akka.Persistence.Pulsar.Query
         {
             throw new System.NotImplementedException();
         }
-    }
-
-    public sealed class PulsarReadJournalProvider : IReadJournalProvider
-    {
-        private readonly ExtendedActorSystem system;
-        private readonly PulsarSettings settings;
-
-        public PulsarReadJournalProvider(ExtendedActorSystem system, Config config, IMetadataStore sequenceStore)
-        {
-            this.system = system;
-            this.settings = new PulsarSettings(config);
-        }
-
-        public IReadJournal GetReadJournal() => new PulsarReadJournal(system, settings);
     }
 }
