@@ -53,8 +53,8 @@ namespace Akka.Persistence.Pulsar.Query
             var client = settings.CreateClient();
             var (start, end) = fromSequenceNr == 0 ? (MessageId.Earliest, MessageId.Latest) : _metadataStore.GetStartMessageIdRange(persistenceid, fromSequenceNr, toSequenceNr).Result;//https://github.com/danske-commodities/dotpulsar/issues/12
             var reader = client.CreateReader(new ReaderOptions(start, topic));
-            return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages()
-                .Where(x => (x.MessageId.LedgerId >= start.LedgerId) && (x.MessageId.EntryId >= start.EntryId))))
+            return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages()))
+                .Where(x => (x.MessageId.LedgerId >= start.LedgerId) && (x.MessageId.EntryId >= start.EntryId))
                 .Select(message =>
                 {
                     return new EventEnvelope(offset: new Sequence(_serialization.PersistentFromBytes(message.Data.ToArray()).SequenceNr), persistenceid, (long)message.SequenceId, message.Data);

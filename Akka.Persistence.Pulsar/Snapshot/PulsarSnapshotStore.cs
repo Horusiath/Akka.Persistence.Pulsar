@@ -81,7 +81,8 @@ namespace Akka.Persistence.Pulsar.Snapshot
         {
             //This needs testing to see if this can be relied on!
             //Other implementation filtered with sequenceid and timestamp, do we need same here?
-            var reader = await GetReader(persistenceId);
+            //var reader = await GetReader(persistenceId);
+            var reader = _client.CreateReader(new ReaderOptions(MessageId.Latest, Utils.Journal.PrepareTopic($"snapshot-{persistenceId}".ToLower())));
             var message = await reader.Messages()
                 .Where(x => x.SequenceId <= (ulong)criteria.MaxSequenceNr)
                 .Where(t => t.EventTime <= (ulong)criteria.MaxTimeStamp.Ticks)
