@@ -63,10 +63,12 @@ namespace Akka.Persistence.Pulsar
             var builder = PulsarClient.Builder()
                 .ServiceUrl(this.ServiceUrl)
                 .RetryInterval(this.RetryInterval)
-                .AuthenticateUsingToken(this.JwtToken)
                 .VerifyCertificateAuthority(this.VerifyCertificateAuthority)
                 .VerifyCertificateName(this.VerifyCertificateName);
-            
+            if (!(this.JwtToken is null))
+            {
+                builder = builder.AuthenticateUsingToken(this.JwtToken);
+            }
             if (this.ConnectionSecurity.HasValue)
             {
                 builder = builder.ConnectionSecurity(this.ConnectionSecurity.Value);

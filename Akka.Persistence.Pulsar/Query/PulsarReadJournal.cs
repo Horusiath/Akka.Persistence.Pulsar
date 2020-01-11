@@ -51,7 +51,7 @@ namespace Akka.Persistence.Pulsar.Query
         {
             var topic = Utils.Journal.PrepareTopic($"Journal-{persistenceid}".ToLower()); 
             var client = settings.CreateClient();
-            var (start, end) = _metadataStore.GetStartMessageIdRange(persistenceid, fromSequenceNr, toSequenceNr).Result;//https://github.com/danske-commodities/dotpulsar/issues/12
+            var (start, end) = fromSequenceNr == 0 ? (MessageId.Earliest, MessageId.Latest) : _metadataStore.GetStartMessageIdRange(persistenceid, fromSequenceNr, toSequenceNr).Result;//https://github.com/danske-commodities/dotpulsar/issues/12
             var reader = client.CreateReader(new ReaderOptions(start, topic));
             return Source.FromGraph(new AsyncEnumerableSourceStage<Message>(reader.Messages()
                 .Where(x => (x.MessageId.LedgerId >= start.LedgerId) && (x.MessageId.EntryId >= start.EntryId))))
