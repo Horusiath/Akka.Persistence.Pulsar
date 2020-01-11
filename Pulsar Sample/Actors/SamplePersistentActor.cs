@@ -11,8 +11,10 @@ namespace Pulsar_Sample.Actors
         public override string PersistenceId => "sampleActor";
         public SamplePersistentActor()
         {
+            _state = new SampleActorState();
             Command<ICommand>(c => 
             {
+                Console.WriteLine("Command Received");
                 _state.HandledCount++;
                 switch (c)
                 {
@@ -26,6 +28,7 @@ namespace Pulsar_Sample.Actors
                         break;
                 }                
             });
+            
             Recover<ICommand>(c => 
             {
                 Console.WriteLine("Recovered!!");

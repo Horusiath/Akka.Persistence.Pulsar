@@ -14,11 +14,6 @@
 					  event-stream = on
 					  unhandled = on
 				  }  
-				  serialization-settings.json 
-				  {
-                        preserve-object-references = false
-                        encode-type-names = false
-                  }
 			} 
 			persistence
 			{
@@ -43,23 +38,7 @@
 		                }
 					}
 
-					snapshot-store 
-					{
-						plugin = "akka.persistence.snapshot-store.pulsar"
-						pulsar 
-						{
-
-			                  # qualified type name of the SQL Server persistence journal actor
-			                  class = "Akka.Persistence.Pulsar.Snapshot.PulsarSnapshotStore, Akka.Persistence.Pulsar"
-
-			                  # dispatcher used to drive journal actor
-			                  plugin-dispatcher = "akka.actor.default-dispatcher"
-			                  
-
-			                  # should corresponding journal table be initialized automatically
-			                  auto-initialize = off
-						}
-					}
+					
 				
 					query.journal.pulsar
 					{

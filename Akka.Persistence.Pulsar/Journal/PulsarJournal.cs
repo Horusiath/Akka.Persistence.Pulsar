@@ -34,6 +34,9 @@ namespace Akka.Persistence.Pulsar.Journal
         private readonly ILoggingAdapter _log = Context.GetLogger();
         private readonly IPulsarClient _client;
         private readonly IMetadataStore _metadataStore;
+        private Akka.Serialization.Serialization _serializer;
+
+        public Akka.Serialization.Serialization Serialization => _serializer ??= Context.System.Serialization;
         private ConcurrentDictionary<string, IProducer> _producers = new ConcurrentDictionary<string, IProducer>();
 
         
@@ -135,7 +138,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     var persistentMessages = (IImmutableList<IPersistentRepresentation>) write.Payload;
                     foreach (var message in persistentMessages)
                     {
-                        var producer = await GetProducer(message.PersistenceId, "Journal");
+                        var producer = GetProducer(message.PersistenceId, "Journal");
                         var messageBuilder = new MessageBuilder(producer);
                         messageBuilder.Key($"{message.PersistenceId}-{message.SequenceNr}");
                         messageBuilder.SequenceId((ulong)message.SequenceNr);//used in reconstructing MessageId
@@ -149,8 +152,8 @@ namespace Akka.Persistence.Pulsar.Journal
                             }
                         }
                         
-                        var journal = _serialization.PersistentToBytes((IPersistentRepresentation)message.Payload);
-                        var messageid = await messageBuilder.Send(journal, CancellationToken.None);//For now
+                        var journal = Context.System.Serialization.Serialize(message.Payload);
+                        var messageid = await messageBuilder.Send(journal, cancellationToken: default);//For now
                         await SaveMessageId(message.PersistenceId, message.SequenceNr, messageid, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());// https://github.com/danske-commodities/dotpulsar/issues/12
 
                     }
@@ -198,12 +201,12 @@ namespace Akka.Persistence.Pulsar.Journal
             }       
 
         }
-        private async Task<IProducer> GetProducer(string persistenceid, string type)
+        private IProducer GetProducer(string persistenceid, string type)
         {
             var topic = Utils.Journal.PrepareTopic($"{type}-{persistenceid}".ToLower());
             if (!_producers.ContainsKey(topic))
             {
-                await using var producer = _client.CreateProducer(new ProducerOptions(topic));
+                var producer = _client.CreateProducer(new ProducerOptions(topic));
                 _producers.TryAdd(topic, producer);
                 return producer;
             }

@@ -43,10 +43,17 @@ namespace Akka.Persistence.Pulsar.CursorStore.Impl
         }
         public async Task<(long sequenceid, MessageId messageId)> GetLatestStartMessageId(string persistenceId)
         {
-            var latestRows = await _session.ExecuteAsync(_latestStartMessageIdStatement.Bind(persistenceId));
-            var latest = latestRows.FirstOrDefault();
-            var messageId = new MessageId(latest.GetValue<ulong>("ledger_id"), latest.GetValue<ulong>("entry_id"), latest.GetValue<int>("partition"), latest.GetValue<int>("batch_index"));
-            return (latest.GetValue<long>("sequence_id"), messageId);
+            try
+            {
+                var latestRows = await _session.ExecuteAsync(_latestStartMessageIdStatement.Bind(persistenceId));
+                var latest = latestRows.FirstOrDefault();
+                var messageId = new MessageId(latest.GetValue<ulong>("ledger_id"), latest.GetValue<ulong>("entry_id"), latest.GetValue<int>("partition"), latest.GetValue<int>("batch_index"));
+                return (latest.GetValue<long>("sequence_id"), messageId);
+            }
+            catch
+            {
+                return (0, null);
+            }
         }
 
         public async Task<(MessageId startMessageId, MessageId endMessageId)> GetStartMessageIdRange(string persistenceid, long fromSequenceId, long toSequenceId)

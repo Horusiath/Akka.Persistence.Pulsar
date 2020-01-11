@@ -8,6 +8,7 @@ using Pulsar_Sample.Command;
 using Pulsar_Sample.Observer;
 using System;
 using System.IO;
+using System.Threading;
 
 namespace Pulsar_Sample
 {
@@ -28,6 +29,8 @@ namespace Pulsar_Sample
             while(true)
             {
                 sampleActor.Tell(new ReadSystemCurrentTimeUtc());
+                Thread.Sleep(TimeSpan.FromSeconds(5));
+                Console.WriteLine("Tell Actor");
             }
         }
     }
