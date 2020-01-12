@@ -72,42 +72,25 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             
             await CreateProducer(persistenceId, "Journal");
-            await CreateProducer(persistenceId, "Metadata");
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
 
             var (start, end) = await _metadataStore.GetStartMessageIdRange(persistenceId, fromSequenceNr, toSequenceNr);//https://github.com/danske-commodities/dotpulsar/issues/12
             var count = 0L;
             Console.WriteLine(start.EntryId);
+            Console.WriteLine(end.EntryId);
             var reader = _client.CreateReader(new ReaderOptions(start, Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower())));
-            var messages = reader.Messages()
-                //.Where(x => (x.MessageId.LedgerId >= start.LedgerId) && (x.MessageId.EntryId >= start.EntryId))
-                //.Where(x => (x.MessageId.LedgerId <= end.LedgerId) && (x.MessageId.EntryId <= end.EntryId))
-                /*.TakeWhile(_=> 
-                {
-                    //Do I need to worry about thread-safety?                    
-                    var ct = count;
-                    var cont = ct <= max;
-                    count++;
-                    return cont;
-                })*/
-                //.Take((int)max)//Felt this is tthe best place
-                /*.Select(m => {
-                    var deserialized = _serialization.PersistentFromBytes(m.Data.ToArray());
-                    return new Persistent(
-                        deserialized.Payload,
-                        deserialized.SequenceNr,
-                        deserialized.PersistenceId,
-                        deserialized.Manifest,
-                        deserialized.IsDeleted,
-                        ActorRefs.NoSender,
-                        deserialized.WriterGuid);
-                })*/;
-            await foreach(var m in messages)
+            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
             {
-                //var persistent = new Persistent(payload, sequenceNr, persistenceId, manifest, sender);
-                Console.WriteLine("Replaying: "+ m.SequenceId);
-                var deserialized = _serialization.PersistentFromBytes(m.Data.ToArray());
-                var p = new Persistent(
+                Console.WriteLine($"Replaying Messages");
+                await foreach(var message in reader.Messages(cts.Token))
+                {
+                    Console.WriteLine($"Replaying Message: {message.SequenceId}");
+                    if (!(count <= max))
+                        return;
+                    if (message.MessageId.Equals(end))
+                        return;
+                    var deserialized = _serialization.PersistentFromBytes(message.Data.ToArray());
+                    var p = new Persistent(
                     deserialized.Payload,
                     deserialized.SequenceNr,
                     deserialized.PersistenceId,
@@ -115,8 +98,9 @@ namespace Akka.Persistence.Pulsar.Journal
                     deserialized.IsDeleted,
                     ActorRefs.NoSender,
                     deserialized.WriterGuid);
-                recoveryCallback(p);
-            }
+                    recoveryCallback(p);
+                }
+            }   
             
         }
 

@@ -6,6 +6,7 @@ using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Akka.Persistence.Pulsar.Snapshot
@@ -83,17 +84,26 @@ namespace Akka.Persistence.Pulsar.Snapshot
             //Other implementation filtered with sequenceid and timestamp, do we need same here?
             //var reader = await GetReader(persistenceId);
             var reader = _client.CreateReader(new ReaderOptions(MessageId.Latest, Utils.Journal.PrepareTopic($"snapshot-{persistenceId}".ToLower())));
-            var message = await reader.Messages()
-                .FirstOrDefaultAsync();
-            Console.WriteLine("LoadAsync");
-            var snapshot = _serialization.SnapshotFromBytes(message.Data.ToArray());
-            SelectedSnapshot selectedSnapshot = new SelectedSnapshot(
-            new SnapshotMetadata(
-                persistenceId,
-                (long)message.SequenceId,
-                new DateTime((long)message.EventTime)),
-            snapshot.Data);
-            return selectedSnapshot;
+            using(var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
+            {
+                Console.WriteLine("LoadAsync-1");
+                SelectedSnapshot selectedSnapshot = null;
+                await foreach(var message in reader.Messages(cts.Token))
+                {
+                    Console.WriteLine("LoadAsync -1");
+                    var snapshot = _serialization.SnapshotFromBytes(message.Data.ToArray());
+                    selectedSnapshot = new SelectedSnapshot(
+                    new SnapshotMetadata(
+                        persistenceId,
+                        (long)message.SequenceId,
+                        new DateTime((long)message.EventTime)),
+                    snapshot.Data);
+                    break;
+                }
+                return selectedSnapshot;
+
+            }
+            
         }
 
         protected override async Task SaveAsync(SnapshotMetadata metadata, object snapshot)
