@@ -80,17 +80,17 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
         protected override async Task<SelectedSnapshot> LoadAsync(string persistenceId, SnapshotSelectionCriteria criteria)
         {
-            //This needs testing to see if this can be relied on!
-            //Other implementation filtered with sequenceid and timestamp, do we need same here?
-            //var reader = await GetReader(persistenceId);
-            var reader = _client.CreateReader(new ReaderOptions(MessageId.Latest, Utils.Journal.PrepareTopic($"snapshot-{persistenceId}".ToLower())));
-            using(var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
+            var consumerOption = new ConsumerOptions($"LoadAsync-{persistenceId}", Utils.Journal.PrepareTopic($"snapshot-{persistenceId}".ToLower()));
+            //var reader = _client.CreateReader(new ReaderOptions(MessageId.Latest, Utils.Journal.PrepareTopic($"snapshot-{persistenceId}".ToLower())));
+            var consumer = _client.CreateConsumer(consumerOption);
+            await consumer.Seek(MessageId.Latest);
+            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
             {
                 Console.WriteLine("LoadAsync-1");
                 SelectedSnapshot selectedSnapshot = null;
-                await foreach(var message in reader.Messages(cts.Token))
+                await foreach(var message in consumer.Messages(cts.Token))
                 {
-                    Console.WriteLine("LoadAsync -1");
+                    Console.WriteLine("LoadAsync - 2");
                     var snapshot = _serialization.SnapshotFromBytes(message.Data.ToArray());
                     selectedSnapshot = new SelectedSnapshot(
                     new SnapshotMetadata(
@@ -108,7 +108,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
         protected override async Task SaveAsync(SnapshotMetadata metadata, object snapshot)
         {
-            var producer = await GetProducer(metadata.PersistenceId);
+            var producer = GetProducer(metadata.PersistenceId);
             var snapshotData = _serialization.SnapshotToBytes(new Serialization.Snapshot(snapshot));
             var mtadata = new MessageMetadata
             {
@@ -134,12 +134,12 @@ namespace Akka.Persistence.Pulsar.Snapshot
             }
             return _snapshotReaders[topic];
         }
-        private async Task<IProducer> GetProducer(string persistenceid)
+        private IProducer GetProducer(string persistenceid)
         {
             var topic = Utils.Journal.PrepareTopic($"snapshot-{persistenceid}".ToLower());
             if (!_snapshotProducers.ContainsKey(topic))
             {
-                await using var producer = _client.CreateProducer(new ProducerOptions(topic));
+                var producer = _client.CreateProducer(new ProducerOptions(topic));
                 if (producer != null)
                     _snapshotProducers[topic] = producer;
                 return producer;

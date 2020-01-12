@@ -71,18 +71,20 @@ namespace Akka.Persistence.Pulsar.Journal
             Action<IPersistentRepresentation> recoveryCallback)
         {
             
-            await CreateProducer(persistenceId, "Journal");
+            //await CreateProducer(persistenceId, "Journal");
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
 
             var (start, end) = await _metadataStore.GetStartMessageIdRange(persistenceId, fromSequenceNr, toSequenceNr);//https://github.com/danske-commodities/dotpulsar/issues/12
             var count = 0L;
-            Console.WriteLine(start.EntryId);
-            Console.WriteLine(end.EntryId);
-            var reader = _client.CreateReader(new ReaderOptions(start, Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower())));
-            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
+            //var reader = _client.CreateReader(new ReaderOptions(start, Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower())));
+            var consumerOption = new ConsumerOptions($"ReplayMessagesAsync-{persistenceId}", Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower()));
+            var consumer = _client.CreateConsumer(consumerOption);
+            Console.WriteLine(start.ToString());
+            await consumer.Seek(start);
+            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
             {
                 Console.WriteLine($"Replaying Messages");
-                await foreach(var message in reader.Messages(cts.Token))
+                await foreach (var message in consumer.Messages(cts.Token))
                 {
                     Console.WriteLine($"Replaying Message: {message.SequenceId}");
                     if (!(count <= max))
@@ -100,7 +102,8 @@ namespace Akka.Persistence.Pulsar.Journal
                     deserialized.WriterGuid);
                     recoveryCallback(p);
                 }
-            }   
+
+            } 
             
         }
 
@@ -134,7 +137,9 @@ namespace Akka.Persistence.Pulsar.Journal
                     var persistentMessages = (IImmutableList<IPersistentRepresentation>) write.Payload;
                     foreach (var message in persistentMessages)
                     {
-                        var producer = GetProducer(message.PersistenceId, "Journal");
+                        var topic = Utils.Journal.PrepareTopic($"Journal-{message.PersistenceId}".ToLower());
+                        var producer = _client.CreateProducer(new ProducerOptions(topic));
+                        //var producer = GetProducer(message.PersistenceId, "Journal");
                         var messageBuilder = new MessageBuilder(producer);
                         messageBuilder.Key($"{message.PersistenceId}-{message.SequenceNr}");
                         messageBuilder.SequenceId((ulong)message.SequenceNr);//used in reconstructing MessageId

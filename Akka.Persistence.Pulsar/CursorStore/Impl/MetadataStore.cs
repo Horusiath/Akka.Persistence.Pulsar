@@ -43,18 +43,10 @@ namespace Akka.Persistence.Pulsar.CursorStore.Impl
         }
         public async Task<(long sequenceid, MessageId messageId)> GetLatestStartMessageId(string persistenceId)
         {
-            try
-            {
-                var latestRows = await _session.ExecuteAsync(_latestStartMessageIdStatement.Bind(persistenceId));
-                var latest = latestRows.FirstOrDefault();
-                var messageId = new MessageId((ulong)latest.GetValue<long>("ledger_id"), (ulong)latest.GetValue<long>("entry_id"), latest.GetValue<int>("partition"), latest.GetValue<int>("batch_index"));
-                return (latest.GetValue<long>("sequence_id"), messageId);
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                return (0, null);
-            }
+            var latestRows = await _session.ExecuteAsync(_latestStartMessageIdStatement.Bind(persistenceId));
+            var latest = latestRows.FirstOrDefault();
+            var messageId = new MessageId((ulong)latest.GetValue<long>("ledger_id"), (ulong)latest.GetValue<long>("entry_id"), latest.GetValue<int>("partition"), latest.GetValue<int>("batch_index"));
+            return (latest.GetValue<long>("sequence_id"), messageId);
         }
 
         public async Task<(MessageId startMessageId, MessageId endMessageId)> GetStartMessageIdRange(string persistenceid, long fromSequenceId, long toSequenceId)
@@ -63,6 +55,8 @@ namespace Akka.Persistence.Pulsar.CursorStore.Impl
             var startRows = await _session.ExecuteAsync(_startMessageIdRangeStatement.Bind(persistenceid, fromSequenceId, toSequenceId));
             var start = startRows.FirstOrDefault();
             var end = startRows.LastOrDefault();
+            Console.WriteLine(start.GetValue<long>("ledger_id"));
+            Console.WriteLine(end.GetValue<long>("ledger_id"));
             var startMessageId = start is null? MessageId.Earliest: new MessageId((ulong)start.GetValue<long>("ledger_id"), (ulong)start.GetValue<long>("entry_id"), start.GetValue<int>("partition"), start.GetValue<int>("batch_index"));
             var endMessageId = end is null? MessageId.Latest: new MessageId((ulong)end.GetValue<long>("ledger_id"), (ulong)end.GetValue<long>("entry_id"), end.GetValue<int>("partition"), end.GetValue<int>("batch_index"));
             return (startMessageId, endMessageId);
