@@ -84,7 +84,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
             //var reader = _client.CreateReader(new ReaderOptions(MessageId.Latest, Utils.Journal.PrepareTopic($"snapshot-{persistenceId}".ToLower())));
             var consumer = _client.CreateConsumer(consumerOption);
             await consumer.Seek(MessageId.Latest);
-            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
+            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
             {
                 Console.WriteLine("LoadAsync-1");
                 SelectedSnapshot selectedSnapshot = null;

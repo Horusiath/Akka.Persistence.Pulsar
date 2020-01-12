@@ -79,27 +79,24 @@ namespace Akka.Persistence.Pulsar.Journal
             //var reader = _client.CreateReader(new ReaderOptions(start, Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower())));
             var consumerOption = new ConsumerOptions($"ReplayMessagesAsync-{persistenceId}", Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower()));
             var consumer = _client.CreateConsumer(consumerOption);
-            Console.WriteLine(start.ToString());
-            await consumer.Seek(start);
+            await consumer.Seek(start);//One need to be aware that this worked for me only if I started with a CLEAN pulsar topic without any messages or restarted the cluster
             using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
             {
-                Console.WriteLine($"Replaying Messages");
                 await foreach (var message in consumer.Messages(cts.Token))
                 {
-                    Console.WriteLine($"Replaying Message: {message.SequenceId}");
+                    var data = message.Data.ToArray();
+                    var ed = end;
                     if (!(count <= max))
                         return;
-                    if (message.MessageId.Equals(end))
+                    if (message.MessageId.Equals(ed))
+                    {
+                        Console.WriteLine("Stream End");
                         return;
-                    var deserialized = _serialization.PersistentFromBytes(message.Data.ToArray());
-                    var p = new Persistent(
-                    deserialized.Payload,
-                    deserialized.SequenceNr,
-                    deserialized.PersistenceId,
-                    deserialized.Manifest,
-                    deserialized.IsDeleted,
-                    ActorRefs.NoSender,
-                    deserialized.WriterGuid);
+                    }
+                    Console.WriteLine($"Replaying Message: {message.SequenceId}");
+                    var deserialized = context.System.Serialization.Deserialize(data, 0, typeof(IPersistentRepresentation)) as IPersistentRepresentation;
+                    //Console.WriteLine(deserialized.GetType().Name);
+                    var p = new Persistent(deserialized.Payload, deserialized.SequenceNr, deserialized.PersistenceId, deserialized.Manifest,  deserialized.IsDeleted, ActorRefs.NoSender, deserialized.WriterGuid);
                     recoveryCallback(p);
                 }
 
@@ -142,7 +139,7 @@ namespace Akka.Persistence.Pulsar.Journal
                         //var producer = GetProducer(message.PersistenceId, "Journal");
                         var messageBuilder = new MessageBuilder(producer);
                         messageBuilder.Key($"{message.PersistenceId}-{message.SequenceNr}");
-                        messageBuilder.SequenceId((ulong)message.SequenceNr);//used in reconstructing MessageId
+                        messageBuilder.SequenceId((ulong)message.SequenceNr);
                         if(message.Payload is Tagged t)
                         {
                             var tgs = 0;
