@@ -1,5 +1,6 @@
 ﻿using Akka.Event;
 using Akka.Persistence.Snapshot;
+using Akka.Serialization;
 using DotPulsar;
 using DotPulsar.Abstractions;
 using System;
@@ -23,14 +24,15 @@ namespace Akka.Persistence.Pulsar.Snapshot
         private readonly ILoggingAdapter _log = Context.GetLogger();
         private readonly IPulsarClient _client;
         private readonly ConcurrentDictionary<string,IProducer> _snapshotProducers;
-        private readonly ConcurrentDictionary<string, IReader> _snapshotReaders;
-        private SerializationHelper _serialization;
+        private readonly ConcurrentDictionary<string, IReader> _snapshotReaders; 
+        private static readonly Type SnapshotType = typeof(Serialization.Snapshot);
+        private readonly Serializer _serializer;
 
         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
 
         public PulsarSnapshotStore() : this(PulsarPersistence.Get(Context.System).JournalSettings)
         {
-            _serialization = new SerializationHelper(Context.System);
+            _serializer = Context.System.Serialization.FindSerializerForType(SnapshotType);
             _snapshotProducers = new ConcurrentDictionary<string, IProducer>();
             _snapshotReaders = new ConcurrentDictionary<string, IReader>();
         }
@@ -80,24 +82,23 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
         protected override async Task<SelectedSnapshot> LoadAsync(string persistenceId, SnapshotSelectionCriteria criteria)
         {
-            var consumerOption = new ConsumerOptions($"LoadAsync-{persistenceId}", Utils.Journal.PrepareTopic($"snapshot-{persistenceId}".ToLower()));
-            //var reader = _client.CreateReader(new ReaderOptions(MessageId.Latest, Utils.Journal.PrepareTopic($"snapshot-{persistenceId}".ToLower())));
-            var consumer = _client.CreateConsumer(consumerOption);
-            await consumer.Seek(MessageId.Earliest);
+            //var consumerOption = new ConsumerOptions($"Snapshot-LoadAsync-{persistenceId}", Utils.Journal.PrepareTopic($"snapshot-{persistenceId}".ToLower()));
+            var reader = GetReader(persistenceId);// _client.CreateReader(new ReaderOptions(MessageId.Latest, Utils.Journal.PrepareTopic($"snapshot-{persistenceId}".ToLower())));
+            //var consumer = _client.CreateConsumer(consumerOption);
+            //await consumer.Seek(MessageId.Earliest);
             using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
             {
-                Console.WriteLine("LoadAsync-1");
                 SelectedSnapshot selectedSnapshot = null;
-                await foreach(var message in consumer.Messages(cts.Token))
+                await foreach(var message in reader.Messages(cts.Token))
                 {
-                    Console.WriteLine("LoadAsync - 2");
-                    var snapshot = _serialization.SnapshotFromBytes(message.Data.ToArray());
+                    var snapshot = Deserialize(message.Data.ToArray());
                     selectedSnapshot = new SelectedSnapshot(
                     new SnapshotMetadata(
                         persistenceId,
                         (long)message.SequenceId,
                         new DateTime((long)message.EventTime)),
-                    snapshot.Data);
+                    snapshot);
+                    Console.WriteLine("Loaded Snapshot");
                     break;
                 }
                 return selectedSnapshot;
@@ -109,7 +110,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
         protected override async Task SaveAsync(SnapshotMetadata metadata, object snapshot)
         {
             var producer = GetProducer(metadata.PersistenceId);
-            var snapshotData = _serialization.SnapshotToBytes(new Serialization.Snapshot(snapshot));
+            var snapshotData = Serialize(snapshot);
             var mtadata = new MessageMetadata
             {
                 Key = metadata.PersistenceId,
@@ -117,7 +118,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
             };
             await producer.Send(mtadata, snapshotData);
         }
-        private async Task<IReader> GetReader(string persistenceid)
+        private IReader GetReader(string persistenceid)
         {
             var topic = Utils.Journal.PrepareTopic($"snapshot-{persistenceid}".ToLower());
             if(!_snapshotReaders.ContainsKey(topic))
@@ -126,7 +127,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
                 {
                     MessagePrefetchCount = 1
                 };
-                await using var reader = _client.CreateReader(readerOption);
+                var reader = _client.CreateReader(readerOption);
                 
                 if (reader != null)
                     _snapshotReaders[topic] = reader;
@@ -151,6 +152,14 @@ namespace Akka.Persistence.Pulsar.Snapshot
             base.PostStop();
             _client.DisposeAsync();
         }
-        
+        private object Deserialize(byte[] bytes)
+        {
+            return ((Serialization.Snapshot)_serializer.FromBinary(bytes, SnapshotType)).Data;
+        }
+
+        private byte[] Serialize(object snapshotData)
+        {
+            return _serializer.ToBinary(new Serialization.Snapshot(snapshotData));
+        }
     }
 }

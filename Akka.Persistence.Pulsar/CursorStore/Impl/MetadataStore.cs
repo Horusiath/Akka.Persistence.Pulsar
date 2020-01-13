@@ -65,7 +65,7 @@ namespace Akka.Persistence.Pulsar.CursorStore.Impl
                 var end = startRows.FirstOrDefault();
                 var start = startRows.LastOrDefault();
                 var startMessageId = start is null ? MessageId.Earliest : new MessageId((ulong)start.GetValue<long>("ledger_id"), (ulong)start.GetValue<long>("entry_id"), start.GetValue<int>("partition"), start.GetValue<int>("batch_index"));
-                var endMessageId = end is null ? MessageId.Latest : new MessageId((ulong)end.GetValue<long>("ledger_id"), (ulong)end.GetValue<long>("entry_id"), end.GetValue<int>("partition"), end.GetValue<int>("batch_index"));
+                var endMessageId = startRows.Count() < 2 ?  MessageId.Latest : new MessageId((ulong)end.GetValue<long>("ledger_id"), (ulong)end.GetValue<long>("entry_id"), end.GetValue<int>("partition"), end.GetValue<int>("batch_index"));
                 return (startMessageId, endMessageId);
             }
             catch
@@ -87,6 +87,11 @@ namespace Akka.Persistence.Pulsar.CursorStore.Impl
         public async Task SaveStartMessageId(string persistenceid, long sequenceNr, MessageId messageId, long eventTime)
         {
             await _session.ExecuteAsync(_saveMessageIdStatement.Bind((long)messageId.LedgerId, (long)messageId.EntryId, messageId.Partition, messageId.BatchIndex, persistenceid, sequenceNr, eventTime));
+        }
+        public void Close()
+        {
+            //_session.Dispose();
+            _cluster.Shutdown();
         }
     }
 }
