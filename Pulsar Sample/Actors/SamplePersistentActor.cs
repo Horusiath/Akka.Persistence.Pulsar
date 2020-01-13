@@ -8,7 +8,7 @@ namespace Pulsar_Sample.Actors
     public class SamplePersistentActor : ReceivePersistentActor
     {
         private SampleActorState _state;
-        public override string PersistenceId => "sampleActor";
+        public override string PersistenceId => "samplePulsar";
         public SamplePersistentActor()
         {
             _state = new SampleActorState();

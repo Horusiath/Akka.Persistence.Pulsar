@@ -67,43 +67,49 @@ namespace Akka.Persistence.Pulsar.Journal
         /// </summary>
         //Is ReplayMessagesAsync called once per actor lifetime?
         public override async Task ReplayMessagesAsync(IActorContext context, string persistenceId, long fromSequenceNr,
-            long toSequenceNr, long max,
-            Action<IPersistentRepresentation> recoveryCallback)
+           long toSequenceNr, long max,
+           Action<IPersistentRepresentation> recoveryCallback)
         {
-            
-            //await CreateProducer(persistenceId, "Journal");
+
+            await CreateProducer(persistenceId, "Journal");
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
 
             var (start, end) = await _metadataStore.GetStartMessageIdRange(persistenceId, fromSequenceNr, toSequenceNr);//https://github.com/danske-commodities/dotpulsar/issues/12
             var count = 0L;
-            //var reader = _client.CreateReader(new ReaderOptions(start, Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower())));
-            var consumerOption = new ConsumerOptions($"ReplayMessagesAsync-{persistenceId}", Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower()));
-            var consumer = _client.CreateConsumer(consumerOption);
-            await consumer.Seek(start);//One need to be aware that this worked for me only if I started with a CLEAN pulsar topic without any messages or restarted the cluster
+            Console.WriteLine(start.ToString());
+            // Beware of LedgerId issue, Reader could start from a different MessageId when connected to a 
+            //different Ledger from the supplied StartMessageId LedgerId
+            var reader = _client.CreateReader(new ReaderOptions(start, Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower())));
             using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
             {
-                await foreach (var message in consumer.Messages(cts.Token))
+                Console.WriteLine($"Replaying Messages");
+                await foreach (var message in reader.Messages(cts.Token))
                 {
                     var data = message.Data.ToArray();
                     var ed = end;
-                    if (!(count <= max))
+                    Console.WriteLine($"Replaying Message: {message.SequenceId}");
+                    if ((count > max))
                         return;
+                    //Most likely to have different LedgerId - this could fail with different LedgerId
+                    //In this case may not fulfil intended purpose
                     if (message.MessageId.Equals(ed))
                     {
                         Console.WriteLine("Stream End");
                         return;
                     }
                     Console.WriteLine($"Replaying Message: {message.SequenceId}");
-                    var deserialized = context.System.Serialization.Deserialize(data, 0, typeof(IPersistentRepresentation)) as IPersistentRepresentation;
+                    var ser = context.System.Serialization.FindSerializerForType(typeof(IPersistentRepresentation));
+                    var p = (Persistent)ser.FromBinary(data, typeof(IPersistentRepresentation));
+                    //var deserialized = context.System.Serialization.Deserialize(data, 0, typeof(IPersistentRepresentation)) as IPersistentRepresentation;
                     //Console.WriteLine(deserialized.GetType().Name);
-                    var p = new Persistent(deserialized.Payload, deserialized.SequenceNr, deserialized.PersistenceId, deserialized.Manifest,  deserialized.IsDeleted, ActorRefs.NoSender, deserialized.WriterGuid);
+                    //var p = new Persistent(deserialized.Payload, deserialized.SequenceNr, deserialized.PersistenceId, deserialized.Manifest,  deserialized.IsDeleted, ActorRefs.NoSender, deserialized.WriterGuid);
                     recoveryCallback(p);
+                    Console.WriteLine($"Replayed Message: {message.SequenceId}");
+                    count++;
                 }
+            }
 
-            } 
-            
         }
-
         /// <summary>
         /// This method is called at the very beginning of the replay procedure to define a possible boundary of replay:
         /// In akka persistence every persistent actor starts from the replay phase, where it replays state from all of
@@ -150,7 +156,8 @@ namespace Akka.Persistence.Pulsar.Journal
                             }
                         }
                         
-                        var journal = Context.System.Serialization.Serialize(message.Payload);
+                        var serializer = Context.System.Serialization.FindSerializerFor(message.Payload);
+                        var journal = serializer.ToBinary(message.Payload);
                         var messageid = await messageBuilder.Send(journal, cancellationToken: default);//For now
                         await SaveMessageId(message.PersistenceId, message.SequenceNr, messageid, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());// https://github.com/danske-commodities/dotpulsar/issues/12
 
