@@ -10,23 +10,24 @@
 #endregion
 
 using System;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.Event;
 using Akka.Persistence.Journal;
 using Akka.Persistence.Pulsar.CursorStore;
 using Akka.Persistence.Pulsar.CursorStore.Impl;
-using DotPulsar;
-using DotPulsar.Abstractions;
-using DotPulsar.Internal;
-using System.Text;
-using System.Text.Json;
+using SharpPulsar.Akka;
+using SharpPulsar.Akka.Configuration;
+using SharpPulsar.Akka.InternalCommands;
+using SharpPulsar.Akka.InternalCommands.Producer;
+using SharpPulsar.Api;
+using SharpPulsar.Handlers;
+using SharpPulsar.Impl;
+using SharpPulsar.Impl.Schema;
 
 namespace Akka.Persistence.Pulsar.Journal
 {
@@ -34,17 +35,31 @@ namespace Akka.Persistence.Pulsar.Journal
     {
         private readonly PulsarSettings settings;
         private readonly ILoggingAdapter _log = Context.GetLogger();
-        private readonly IPulsarClient _client;
+        private readonly PulsarSystem _client;
+        private long _readerCount;
         private readonly IMetadataStore _metadataStore;
         private readonly Akka.Serialization.Serializer _serializer;
         private static readonly Type PersistentRepresentationType = typeof(IPersistentRepresentation);
-        private ConcurrentDictionary<string, IProducer> _producers = new ConcurrentDictionary<string, IProducer>();
+        private ConcurrentDictionary<string, IActorRef> _producers = new ConcurrentDictionary<string, IActorRef>();
+        private DefaultProducerListener _producerListener;
+        private List<string> _pendingTopicProducer = new List<string>();
 
-        
-         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
+        //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
 
         public PulsarJournal() : this(PulsarPersistence.Get(Context.System).JournalSettings)
         {
+            _producerListener = new DefaultProducerListener((o) =>
+            {
+                Console.WriteLine(o.ToString());
+            }, (s, p) =>
+            {
+                var t = s.Split("/").Last().ToLower();
+                _producers.TryAdd(s, p);
+                _pendingTopicProducer.Remove(t);
+            }, s =>
+            {
+                //save messageid in pulsar to be queried using presto sql
+            });
             _metadataStore = new MetadataStore(Context.System);//Could also use Akka extension to inject implementation
 
             _serializer = Context.System.Serialization.FindSerializerForType(PersistentRepresentationType);
@@ -53,7 +68,7 @@ namespace Akka.Persistence.Pulsar.Journal
         public PulsarJournal(PulsarSettings settings)
         {
             this.settings = settings;
-            this._client = settings.CreateClient();
+            this._client = settings.CreateSystem();
         }
 
         /// <summary>
@@ -75,37 +90,49 @@ namespace Akka.Persistence.Pulsar.Journal
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
 
             var (start, end) = await _metadataStore.GetStartMessageIdRange(persistenceId, fromSequenceNr, toSequenceNr);//https://github.com/danske-commodities/dotpulsar/issues/12
-            var count = 0L;
-            Console.WriteLine(start.ToString());
-            Console.WriteLine(end.ToString());
+            var ended = false;
             // Beware of LedgerId issue, Reader could start from a different MessageId when connected to a 
             //different Ledger from the supplied StartMessageId LedgerId
-            var reader = _client.CreateReader(new ReaderOptions(start, Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower())));
-            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
-            {
-                Console.WriteLine($"Replaying Messages");
-                await foreach (var message in reader.Messages(cts.Token))
+            IActorRef reader = null;
+            #region reader
+            var readerConfig = new ReaderConfigBuilder()
+                .ReaderName($"journal-{persistenceId}-replay")
+                .Schema(BytesSchema.Of())
+                .EventListener(new DefaultConsumerEventListener(l =>
                 {
-                    var data = message.Data.ToArray();
-                    var ed = end;
-                    Console.WriteLine($"Replaying Message: {message.SequenceId}");
-                    if ((count > max))
-                        return;
-                    //Most likely to have different LedgerId - this could fail with different LedgerId
-                    //In that case may not fulfil intended purpose
-                    if (message.MessageId.Equals(ed))
-                    {
-                        Console.WriteLine("Stream End");
-                        return;
-                    }                    
-                    var p = Deserialize(data);
-                    Console.WriteLine($"Payload: {JsonSerializer.Serialize(p.Payload)}; Sender: {p.Sender}; PersistenceId: {p.PersistenceId}");
-                    recoveryCallback(p);
-                    Console.WriteLine($"Replayed Message: {message.SequenceId}");
-                    count++;
-                }
-            }
 
+                }, (s, a) => { reader = a; }, (s,l) =>
+                {
+
+                }))
+                .ReaderListener(new DefaultMessageListener(null, m =>
+                {
+                    var entryid = 0L;
+                    if (m.MessageId is MessageId mi)
+                    {
+                        entryid = mi.EntryId;
+                    }
+                    else if (m.MessageId is BatchMessageId b)
+                    {
+                        entryid = b.EntryId;
+                    }
+
+                    var count = entryid - start.EntryId;
+                    if (count == max)
+                        ended = true;
+                    var p = Deserialize((byte[])(object)m.Data);
+                    recoveryCallback(p);
+                }))
+                .Topic($"Journal-{persistenceId}".ToLower())
+                .StartMessageId(new BatchMessageId((long)start.LedgerId, (long)start.EntryId, start.Partition, start.BatchIndex))
+                .ReaderConfigurationData;
+            #endregion
+            _client.CreateReader(new CreateReader(BytesSchema.Of(), readerConfig));
+            while (!ended)
+            {
+                await Task.Delay(500);
+            }
+            //reader.Tell(new CloseConsumer());//we should close this reader?
         }
         /// <summary>
         /// This method is called at the very beginning of the replay procedure to define a possible boundary of replay:
@@ -138,24 +165,32 @@ namespace Akka.Persistence.Pulsar.Journal
                     foreach (var message in persistentMessages)
                     {
                         //var topic = Utils.Journal.PrepareTopic($"Journal-{message.PersistenceId}".ToLower());
-                        var producer = GetProducer(message.PersistenceId, "Journal");
+                        var (topic,producer) = GetProducer(message.PersistenceId, "Journal");
+                        while (producer == null)
+                        {
+                            (topic, producer) = GetProducer(message.PersistenceId, "Journal");
+                            await Task.Delay(500);
+                        }
                         //var producer = GetProducer(message.PersistenceId, "Journal");
-                        var messageBuilder = new MessageBuilder(producer);
-                        messageBuilder.Key($"{message.PersistenceId}-{message.SequenceNr}");
-                        messageBuilder.SequenceId((ulong)message.SequenceNr);
+                        var metadata = new Dictionary<string, object>
+                        {
+                            ["Key"] = $"{message.PersistenceId}-{message.SequenceNr}",
+                            ["SequenceId"] = message.SequenceNr
+                        };
+                        var properties = new Dictionary<string, string>();
                         if(message.Payload is Tagged t)
                         {
                             var tgs = 0;
                             foreach(var tg in t.Tags)
                             {
-                                messageBuilder.Property($"Tag-{tgs}", tg);//Tag messages
+                                properties.Add($"Tag-{tgs}", tg);//Tag messages
                                 tgs++;
                             }
-                        }                        
-                        var journal = Serialize(message); 
-                        var messageid = await messageBuilder.Send(journal, cancellationToken: default);//For now
-                        await SaveMessageId(message.PersistenceId, message.SequenceNr, messageid, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());// https://github.com/danske-commodities/dotpulsar/issues/12
+                        }
 
+                        metadata["Properties"] = properties;
+                        var journal = Serialize(message); 
+                        producer.Tell(new Send(journal, topic, metadata.ToImmutableDictionary()));
                     }
                 }
                 catch (Exception e)
@@ -169,7 +204,7 @@ namespace Akka.Persistence.Pulsar.Journal
         
         private async Task SaveMessageId(string persistenceid, long sequenceNr, MessageId messageId, long eventTime)
         {
-           await _metadataStore.SaveStartMessageId(persistenceid, sequenceNr, messageId, eventTime);
+           //await _metadataStore.SaveStartMessageId(persistenceid, sequenceNr, messageId, eventTime);
         }
 
         /// <summary>
@@ -180,7 +215,7 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             //Pulsar stores unacknowledged messages forever
             //We can delete messages if retention policy is not set by using pulsar consumer
-            var option = new ConsumerOptions($"persistent-consumer-{persistenceId}", Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower()));
+            /*var option = new ConsumerOptions($"persistent-consumer-{persistenceId}", Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower()));
             await using var consumer = _client.CreateConsumer(option);
             var messages = consumer.Messages()
                 .Where(x => x.SequenceId <= (ulong)toSequenceNr);
@@ -188,28 +223,36 @@ namespace Akka.Persistence.Pulsar.Journal
             {
                 await consumer.Acknowledge(message.MessageId); //Acknowledged messages are deleted
             }
-            await consumer.DisposeAsync();//is this good?
+            await consumer.DisposeAsync();//is this good?*/
         }
         private void CreateProducer(string persistenceid, string type)
         {
-            var topic = Utils.Journal.PrepareTopic($"{type}-{persistenceid}".ToLower());
-            if (!_producers.ContainsKey(topic))
-            {
-                var producer = _client.CreateProducer(new ProducerOptions(topic));
-                _producers.TryAdd(topic, producer);
-            }       
-
+            var byteSchema = BytesSchema.Of();
+            var topic =  $"{type}-{persistenceid}".ToLower();
+            var producerConfig = new ProducerConfigBuilder()
+                .ProducerName($"{type}-{persistenceid}")
+                .Topic(topic)
+                .Schema(byteSchema)
+                .SendTimeout(10000)
+                .EventListener(_producerListener)
+                .ProducerConfigurationData;
+            _client.CreateProducer(new CreateProducer(byteSchema, producerConfig));
         }
-        private IProducer GetProducer(string persistenceid, string type)
+        private (string topic, IActorRef producer) GetProducer(string persistenceid, string type)
         {
-            var topic = Utils.Journal.PrepareTopic($"{type}-{persistenceid}".ToLower());
-            if (!_producers.ContainsKey(topic))
+            var topic = $"{type}-{persistenceid}".ToLower();
+            if (!_pendingTopicProducer.Contains(topic))
             {
-                var producer = _client.CreateProducer(new ProducerOptions(topic));
-                _producers.TryAdd(topic, producer);
-                return producer;
+                var t = _producers.Keys.FirstOrDefault(x => x.EndsWith(topic));
+                if (string.IsNullOrWhiteSpace(t))
+                {
+                    CreateProducer(persistenceid, type);
+                    _pendingTopicProducer.Add(topic);
+                    return (null, null);
+                }
+                return (t, _producers[t]) ;
             }
-            return _producers[topic];
+            return (null, null);
         }
         
         protected override void PostStop()

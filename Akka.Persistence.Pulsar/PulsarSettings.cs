@@ -10,8 +10,9 @@
 using System;
 using System.Security.Cryptography.X509Certificates;
 using Akka.Configuration;
-using DotPulsar;
-using DotPulsar.Abstractions;
+using SharpPulsar.Akka;
+using SharpPulsar.Akka.Network;
+using SharpPulsar.Impl.Auth;
 
 namespace Akka.Persistence.Pulsar
 {
@@ -19,15 +20,13 @@ namespace Akka.Persistence.Pulsar
     {
         public PulsarSettings(Config config)
         {
-            ServiceUrl = new Uri(config.GetString("service-url", "pulsar://localhost:6650"), UriKind.Absolute);
-            RetryInterval = config.GetTimeSpan("retry-interval", TimeSpan.FromSeconds(3));
+            ServiceUrl = config.GetString("service-url", "pulsar://localhost:6650");
             VerifyCertificateAuthority = config.GetBoolean("verify-certificate-authority", true);
             VerifyCertificateName = config.GetBoolean("verify-cerfiticate-name", false);
             JwtToken = config.HasPath("jwt-token") ? config.GetString("jwt-token") : null;
-            ConnectionSecurity = config.HasPath("connection-security") 
-                ? (EncryptionPolicy)Enum.Parse(typeof(EncryptionPolicy), config.GetString("connection-security"), ignoreCase: true) 
-                : default;
-            
+            UseProxy = config.GetBoolean("use-proxy", false);
+            AuthClass = config.HasPath("auth-class") ? config.GetString("auth-class") : "";
+            AuthParam = config.HasPath("auth-param") ? config.GetString("auth-param") : "";
             TrustedCertificateAuthority = config.HasPath("trusted-certificate-authority-file") 
                 ? new X509Certificate2(config.GetString("trusted-certificate-authority-file") )
                 : null;
@@ -37,54 +36,41 @@ namespace Akka.Persistence.Pulsar
                 : null;
         }
 
-        public PulsarSettings(Uri serviceUrl, TimeSpan retryInterval, EncryptionPolicy connectionSecurity, string jwtToken, bool verifyCertificateAuthority, bool verifyCertificateName, X509Certificate2 trustedCertificateAuthority, X509Certificate2 clientCertificate)
-        {
-            ServiceUrl = serviceUrl;
-            RetryInterval = retryInterval;
-            ConnectionSecurity = connectionSecurity;
-            JwtToken = jwtToken;
-            VerifyCertificateAuthority = verifyCertificateAuthority;
-            VerifyCertificateName = verifyCertificateName;
-            TrustedCertificateAuthority = trustedCertificateAuthority;
-            ClientCertificate = clientCertificate;
-        }
+        public Config Config { get; set; }
+        public string ServiceUrl { get; set; }
 
-        public Uri ServiceUrl { get; set; }
-        public TimeSpan RetryInterval { get; set; }
-        public EncryptionPolicy? ConnectionSecurity { get; set; }
+        public string AuthClass { get; set; }
+        public string AuthParam { get; set; }
+        public bool UseProxy { get; set; }
         public string JwtToken { get; set; }
         public bool VerifyCertificateAuthority { get; set; }
         public bool VerifyCertificateName { get; set; }
         public X509Certificate2 TrustedCertificateAuthority { get; set; }
         public X509Certificate2 ClientCertificate { get; set; }
         
-        public IPulsarClient CreateClient()
+        public PulsarSystem CreateSystem()
         {
-            var builder = PulsarClient.Builder()
-                .ServiceUrl(this.ServiceUrl)
-                .RetryInterval(this.RetryInterval)
-                .VerifyCertificateAuthority(this.VerifyCertificateAuthority)
-                .VerifyCertificateName(this.VerifyCertificateName);
-            if (!(this.JwtToken is null))
+            var builder = new PulsarClientConfigBuilder()
+                .ServiceUrl(ServiceUrl)
+                .VerifyCertAuth(VerifyCertificateAuthority)
+                .VerifyCertName(VerifyCertificateName)
+                .ConnectionsPerBroker(1)
+                .UseProxy(UseProxy)
+                .Authentication(AuthenticationFactory.Create(AuthClass, AuthParam));
+                
+            if (!(TrustedCertificateAuthority is null))
             {
-                builder = builder.AuthenticateUsingToken(this.JwtToken);
-            }
-            if (this.ConnectionSecurity.HasValue)
-            {
-                builder = builder.ConnectionSecurity(this.ConnectionSecurity.Value);
-            }
-
-            if (!(this.TrustedCertificateAuthority is null))
-            {
-                builder = builder.TrustedCertificateAuthority(this.TrustedCertificateAuthority);
-            }
-            
-            if (!(this.ClientCertificate is null))
-            {
-                builder = builder.TrustedCertificateAuthority(this.ClientCertificate);
+                builder = builder.AddTrustedAuthCert(this.TrustedCertificateAuthority);
             }
 
-            return builder.Build();
+            if (!(ClientCertificate is null))
+            {
+                builder = builder.AddTlsCerts(new X509Certificate2Collection{ ClientCertificate });
+            }
+            //.Authentication(AuthenticationFactory.Token("eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJzaGFycHB1bHNhci1jbGllbnQtNWU3NzY5OWM2M2Y5MCJ9.lbwoSdOdBoUn3yPz16j3V7zvkUx-Xbiq0_vlSvklj45Bo7zgpLOXgLDYvY34h4MX8yHB4ynBAZEKG1ySIv76DPjn6MIH2FTP_bpI4lSvJxF5KsuPlFHsj8HWTmk57TeUgZ1IOgQn0muGLK1LhrRzKOkdOU6VBV_Hu0Sas0z9jTZL7Xnj1pTmGAn1hueC-6NgkxaZ-7dKqF4BQrr7zNt63_rPZi0ev47vcTV3ga68NUYLH5PfS8XIqJ_OV7ylouw1qDrE9SVN8a5KRrz8V3AokjThcsJvsMQ8C1MhbEm88QICdNKF5nu7kPYR6SsOfJJ1HYY-QBX3wf6YO3VAF_fPpQ"))
+            //.ClientConfigurationData;
+            var clientConfig = builder.ClientConfigurationData;
+            return new PulsarSystem(clientConfig);
         }
     }
 }
