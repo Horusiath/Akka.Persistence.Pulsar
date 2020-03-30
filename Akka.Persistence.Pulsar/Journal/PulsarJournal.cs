@@ -23,6 +23,7 @@ using Akka.Persistence.Pulsar.CursorStore.Impl;
 using SharpPulsar.Akka;
 using SharpPulsar.Akka.Configuration;
 using SharpPulsar.Akka.InternalCommands;
+using SharpPulsar.Akka.InternalCommands.Consumer;
 using SharpPulsar.Akka.InternalCommands.Producer;
 using SharpPulsar.Api;
 using SharpPulsar.Handlers;
@@ -132,7 +133,7 @@ namespace Akka.Persistence.Pulsar.Journal
             {
                 await Task.Delay(500);
             }
-            //reader.Tell(new CloseConsumer());//we should close this reader?
+            reader.Tell(new CloseConsumer());//we should close this reader?
         }
         /// <summary>
         /// This method is called at the very beginning of the replay procedure to define a possible boundary of replay:
