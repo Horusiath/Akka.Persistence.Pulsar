@@ -25,7 +25,6 @@ using SharpPulsar.Akka.Configuration;
 using SharpPulsar.Akka.InternalCommands;
 using SharpPulsar.Akka.InternalCommands.Consumer;
 using SharpPulsar.Akka.InternalCommands.Producer;
-using SharpPulsar.Api;
 using SharpPulsar.Handlers;
 using SharpPulsar.Impl;
 using SharpPulsar.Impl.Schema;
@@ -44,6 +43,13 @@ namespace Akka.Persistence.Pulsar.Journal
         private ConcurrentDictionary<string, IActorRef> _producers = new ConcurrentDictionary<string, IActorRef>();
         private DefaultProducerListener _producerListener;
         private List<string> _pendingTopicProducer = new List<string>();
+
+        private readonly HashSet<string> _allPersistenceIds = new HashSet<string>();
+        private readonly HashSet<IActorRef> _allPersistenceIdSubscribers = new HashSet<IActorRef>();
+        private readonly Dictionary<string, ISet<IActorRef>> _tagSubscribers =
+            new Dictionary<string, ISet<IActorRef>>();
+        private readonly Dictionary<string, ISet<IActorRef>> _persistenceIdSubscribers
+            = new Dictionary<string, ISet<IActorRef>>();
 
         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
 
