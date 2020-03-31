@@ -1,7 +1,13 @@
-﻿using System;
+﻿//-----------------------------------------------------------------------
+// <copyright file="AllPersistenceIdsPublisher.cs" company="Akka.NET Project">
+//     Copyright (C) 2009-2018 Lightbend Inc. <http://www.lightbend.com>
+//     Copyright (C) 2013-2018 .NET Foundation <https://github.com/akkadotnet/akka.net>
+// </copyright>
+//-----------------------------------------------------------------------
+
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Text;
 
 namespace Akka.Persistence.Pulsar.Query
 {
@@ -29,24 +35,20 @@ namespace Akka.Persistence.Pulsar.Query
 
         public void DeliverBuffer(long demand)
         {
-            if (!Buffer.IsEmpty && demand > 0)
-            {
+            if (!Buffer.IsEmpty && demand > 0) {
                 var totalDemand = Math.Min((int)demand, Buffer.Length);
-                if (Buffer.Length == 1)
-                {
+                if (Buffer.Length == 1) {
                     // optimize for this common case
                     _onNext(Buffer[0]);
                     Buffer = ImmutableArray<T>.Empty;
                 }
-                else if (demand <= int.MaxValue)
-                {
+                else if (demand <= int.MaxValue) {
                     for (var i = 0; i < totalDemand; i++)
                         _onNext(Buffer[i]);
 
                     Buffer = Buffer.RemoveRange(0, totalDemand);
                 }
-                else
-                {
+                else {
                     foreach (var element in Buffer)
                         _onNext(element);
 

@@ -12,11 +12,7 @@ using Akka.Persistence.Pulsar.CursorStore;
 using Akka.Persistence.Pulsar.CursorStore.Impl;
 using Akka.Persistence.Query;
 using Akka.Streams.Dsl;
-using DotPulsar;
-using DotPulsar.Internal;
-using System;
-using System.Buffers;
-using System.Linq;
+using SharpPulsar.Akka;
 
 namespace Akka.Persistence.Pulsar.Query
 {
@@ -29,6 +25,7 @@ namespace Akka.Persistence.Pulsar.Query
         private readonly PulsarSettings settings;
         private SerializationHelper _serialization;
         private IMetadataStore _metadataStore;
+        private PulsarSystem _client;
 
         public PulsarReadJournal(ActorSystem system, PulsarSettings settings)
         {
@@ -36,6 +33,7 @@ namespace Akka.Persistence.Pulsar.Query
             this.settings = settings;
             _serialization = new SerializationHelper(system);
             _metadataStore = new MetadataStore(system);
+            _client = settings.CreateSystem();
         }
         public const string Identifier = "akka.persistence.query.journal.pulsar";
 
