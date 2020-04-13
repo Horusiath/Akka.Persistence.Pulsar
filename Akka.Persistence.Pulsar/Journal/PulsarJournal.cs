@@ -14,12 +14,13 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.Event;
 using Akka.Persistence.Journal;
 using Akka.Persistence.Pulsar.CursorStore;
-using Akka.Persistence.Pulsar.CursorStore.Impl;
+using Akka.Serialization;
 using SharpPulsar.Akka;
 using SharpPulsar.Akka.Configuration;
 using SharpPulsar.Akka.InternalCommands;
@@ -33,12 +34,11 @@ namespace Akka.Persistence.Pulsar.Journal
 {
     public sealed class PulsarJournal : AsyncWriteJournal
     {
-        private readonly PulsarSettings settings;
+        private readonly PulsarSettings _settings;
         private readonly ILoggingAdapter _log = Context.GetLogger();
         private readonly PulsarSystem _client;
         private long _readerCount;
-        private readonly IMetadataStore _metadataStore;
-        private readonly Akka.Serialization.Serializer _serializer;
+        private readonly Serializer _serializer;
         private static readonly Type PersistentRepresentationType = typeof(IPersistentRepresentation);
         private ConcurrentDictionary<string, IActorRef> _producers = new ConcurrentDictionary<string, IActorRef>();
         private DefaultProducerListener _producerListener;
@@ -51,13 +51,25 @@ namespace Akka.Persistence.Pulsar.Journal
         private readonly Dictionary<string, ISet<IActorRef>> _persistenceIdSubscribers
             = new Dictionary<string, ISet<IActorRef>>();
 
+        private Akka.Serialization.Serialization _serialization;
+
+        private JsonSchema _journalEntrySchema;
+        private JsonSchema _metadataEntrySchema;
+
         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
 
         public PulsarJournal() : this(PulsarPersistence.Get(Context.System).JournalSettings)
         {
-            _producerListener = new DefaultProducerListener((o) =>
+
+        }
+
+        public PulsarJournal(PulsarSettings settings)
+        {
+            _journalEntrySchema = JsonSchema.Of(typeof(JournalEntry));
+            _metadataEntrySchema = JsonSchema.Of(typeof(MetadataEntry));
+            _producerListener = new DefaultProducerListener(o =>
             {
-                Console.WriteLine(o.ToString());
+                _log.Info(o.ToString());
             }, (s, p) =>
             {
                 var t = s.Split("/").Last().ToLower();
@@ -67,15 +79,11 @@ namespace Akka.Persistence.Pulsar.Journal
             {
                 //save messageid in pulsar to be queried using presto sql
             });
-            _metadataStore = new MetadataStore(Context.System);//Could also use Akka extension to inject implementation
 
             _serializer = Context.System.Serialization.FindSerializerForType(PersistentRepresentationType);
-        }
-
-        public PulsarJournal(PulsarSettings settings)
-        {
-            this.settings = settings;
-            this._client = settings.CreateSystem();
+            _settings = settings;
+            _client = settings.CreateSystem();
+            _client.SetupSqlServers(new SqlServers(_settings.SqlServers.ToImmutableList()));
         }
 
         /// <summary>
@@ -88,58 +96,39 @@ namespace Akka.Persistence.Pulsar.Journal
         /// be send back to a journal by calling a <paramref name="recoveryCallback"/>.
         /// </summary>
         //Is ReplayMessagesAsync called once per actor lifetime?
-        public override async Task ReplayMessagesAsync(IActorContext context, string persistenceId, long fromSequenceNr,
-           long toSequenceNr, long max,
-           Action<IPersistentRepresentation> recoveryCallback)
+        public override async Task ReplayMessagesAsync(IActorContext context, string persistenceId, long fromSequenceNr, long toSequenceNr, long max, Action<IPersistentRepresentation> recoveryCallback)
         {
-
             CreateProducer(persistenceId, "Journal");
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
-
-            var (start, end) = await _metadataStore.GetStartMessageIdRange(persistenceId, fromSequenceNr, toSequenceNr);//https://github.com/danske-commodities/dotpulsar/issues/12
-            var ended = false;
-            // Beware of LedgerId issue, Reader could start from a different MessageId when connected to a 
-            //different Ledger from the supplied StartMessageId LedgerId
-            IActorRef reader = null;
-            #region reader
-            var readerConfig = new ReaderConfigBuilder()
-                .ReaderName($"journal-{persistenceId}-replay")
-                .Schema(BytesSchema.Of())
-                .EventListener(new DefaultConsumerEventListener(l =>
+            var queryActive = true;
+            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".\"{persistenceId}\" where SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} LIMIT {max}",
+                d =>
                 {
-
-                }, (s, a) => { reader = a; }, (s,l) =>
-                {
-
-                }))
-                .ReaderListener(new DefaultMessageListener(null, m =>
-                {
-                    var entryid = 0L;
-                    if (m.MessageId is MessageId mi)
+                    if (d.ContainsKey("Finished"))
                     {
-                        entryid = mi.EntryId;
+                        queryActive = false;
+                        return;
                     }
-                    else if (m.MessageId is BatchMessageId b)
-                    {
-                        entryid = b.EntryId;
-                    }
-
-                    var count = entryid - start.EntryId;
-                    if (count == max)
-                        ended = true;
-                    var p = Deserialize((byte[])(object)m.Data);
-                    recoveryCallback(p);
-                }))
-                .Topic($"Journal-{persistenceId}".ToLower())
-                .StartMessageId(new BatchMessageId((long)start.LedgerId, (long)start.EntryId, start.Partition, start.BatchIndex))
-                .ReaderConfigurationData;
-            #endregion
-            _client.CreateReader(new CreateReader(BytesSchema.Of(), readerConfig));
-            while (!ended)
+                    var m = JsonSerializer.Deserialize<Dictionary<string, object>>(d["Message"]);
+                    var persistenceId = m["PersistenceId"].ToString();
+                    var sequenceNr = long.Parse(m["SequenceNr"].ToString());
+                    var isDeleted = Convert.ToBoolean(m["IsDeleted"]);
+                    var manifest = m["Manifest"].ToString();
+                    var payload = m["Payload"];
+                    var serializerId = Convert.ToInt32(m["SerializerId"]);
+                    // TODO: hack. Replace when https://github.com/akkadotnet/akka.net/issues/3811
+                    var deserialized = context.System.Serialization.Deserialize((byte[])payload, serializerId, manifest);
+                    recoveryCallback(new Persistent(deserialized, sequenceNr, persistenceId, manifest, isDeleted,
+                        ActorRefs.NoSender, null));
+                }, e =>
+                {
+                    context.System.Log.Error(e.ToString());
+                }, _settings.PrestoServer, true));
+            while (queryActive)
             {
                 await Task.Delay(500);
             }
-            reader.Tell(new CloseConsumer());//we should close this reader?
+            
         }
         /// <summary>
         /// This method is called at the very beginning of the replay procedure to define a possible boundary of replay:

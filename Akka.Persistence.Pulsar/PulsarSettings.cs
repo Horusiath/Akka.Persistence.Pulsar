@@ -27,6 +27,10 @@ namespace Akka.Persistence.Pulsar
             UseProxy = config.GetBoolean("use-proxy", false);
             AuthClass = config.HasPath("auth-class") ? config.GetString("auth-class") : "";
             AuthParam = config.HasPath("auth-param") ? config.GetString("auth-param") : "";
+            PrestoServer = config.GetString("presto-server");
+            TopicPrefix = config.GetString("topic-prefix");
+            Tenant = config.GetString("pulsar-tenant");
+            Namespace = config.GetString("pulsar-namespace");
             TrustedCertificateAuthority = config.HasPath("trusted-certificate-authority-file") 
                 ? new X509Certificate2(config.GetString("trusted-certificate-authority-file") )
                 : null;
@@ -38,7 +42,10 @@ namespace Akka.Persistence.Pulsar
 
         public Config Config { get; set; }
         public string ServiceUrl { get; set; }
-
+        public string Tenant { get; set; }
+        public string Namespace { get; set; }
+        public string PrestoServer { get; set; }
+        public string TopicPrefix { get; set; }// prefix in this sense persistent://public/default/{this part added at runtime}
         public string AuthClass { get; set; }
         public string AuthParam { get; set; }
         public bool UseProxy { get; set; }
