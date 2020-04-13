@@ -83,7 +83,7 @@ namespace Akka.Persistence.Pulsar.Journal
             _serializer = Context.System.Serialization.FindSerializerForType(PersistentRepresentationType);
             _settings = settings;
             _client = settings.CreateSystem();
-            _client.SetupSqlServers(new SqlServers(_settings.SqlServers.ToImmutableList()));
+            _client.SetupSqlServers(new SqlServers(new List<string>{ _settings.PrestoServer}.ToImmutableList()));
         }
 
         /// <summary>
