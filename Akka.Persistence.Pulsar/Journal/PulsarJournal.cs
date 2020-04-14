@@ -19,12 +19,10 @@ using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.Event;
 using Akka.Persistence.Journal;
-using Akka.Persistence.Pulsar.CursorStore;
 using Akka.Serialization;
 using SharpPulsar.Akka;
 using SharpPulsar.Akka.Configuration;
 using SharpPulsar.Akka.InternalCommands;
-using SharpPulsar.Akka.InternalCommands.Consumer;
 using SharpPulsar.Akka.InternalCommands.Producer;
 using SharpPulsar.Handlers;
 using SharpPulsar.Impl;
@@ -40,7 +38,7 @@ namespace Akka.Persistence.Pulsar.Journal
         private long _readerCount;
         private readonly Serializer _serializer;
         private static readonly Type PersistentRepresentationType = typeof(IPersistentRepresentation);
-        private ConcurrentDictionary<string, IActorRef> _producers = new ConcurrentDictionary<string, IActorRef>();
+        public static readonly ConcurrentDictionary<string, Dictionary<string, IActorRef>> _producers = new ConcurrentDictionary<string, Dictionary<string, IActorRef>>();
         private DefaultProducerListener _producerListener;
         private List<string> _pendingTopicProducer = new List<string>();
 
@@ -70,11 +68,14 @@ namespace Akka.Persistence.Pulsar.Journal
             _producerListener = new DefaultProducerListener(o =>
             {
                 _log.Info(o.ToString());
-            }, (s, p) =>
+            }, (to, n, p) =>
             {
-                var t = s.Split("/").Last().ToLower();
-                _producers.TryAdd(s, p);
-                _pendingTopicProducer.Remove(t);
+                if (_producers.ContainsKey(to))
+                    _producers[to].Add(n, p);
+                else
+                {
+                    _producers[to] = new Dictionary<string, IActorRef> { { n, p } };
+                }
             }, s =>
             {
                 //save messageid in pulsar to be queried using presto sql
@@ -98,10 +99,10 @@ namespace Akka.Persistence.Pulsar.Journal
         //Is ReplayMessagesAsync called once per actor lifetime?
         public override async Task ReplayMessagesAsync(IActorContext context, string persistenceId, long fromSequenceNr, long toSequenceNr, long max, Action<IPersistentRepresentation> recoveryCallback)
         {
-            CreateProducer(persistenceId, "Journal");
+            CreateJournalProducer(persistenceId);
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
             var queryActive = true;
-            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".\"{persistenceId}\" where SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} LIMIT {max}",
+            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where persistenceid = {persistenceId} AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} LIMIT {max}",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
@@ -165,7 +166,7 @@ namespace Akka.Persistence.Pulsar.Journal
                         while (producer == null)
                         {
                             (topic, producer) = GetProducer(message.PersistenceId, "Journal");
-                            await Task.Delay(500);
+                            await Task.Delay(1000);
                         }
                         //var producer = GetProducer(message.PersistenceId, "Journal");
                         var metadata = new Dictionary<string, object>
@@ -221,32 +222,36 @@ namespace Akka.Persistence.Pulsar.Journal
             }
             await consumer.DisposeAsync();//is this good?*/
         }
-        private void CreateProducer(string persistenceid, string type)
+        private void CreateJournalProducer(string persistenceid)
         {
-            var byteSchema = BytesSchema.Of();
-            var topic =  $"{type}-{persistenceid}".ToLower();
+            var topic =  $"{_settings.TopicPrefix.TrimEnd('/')}/journal".ToLower();
             var producerConfig = new ProducerConfigBuilder()
-                .ProducerName($"{type}-{persistenceid}")
+                .ProducerName($"journal-{persistenceid}")
                 .Topic(topic)
-                .Schema(byteSchema)
+                .Schema(_journalEntrySchema)
                 .SendTimeout(10000)
                 .EventListener(_producerListener)
                 .ProducerConfigurationData;
-            _client.CreateProducer(new CreateProducer(byteSchema, producerConfig));
+            _client.CreateProducer(new CreateProducer(_journalEntrySchema, producerConfig));
         }
         private (string topic, IActorRef producer) GetProducer(string persistenceid, string type)
         {
-            var topic = $"{type}-{persistenceid}".ToLower();
+            var topic = $"{_settings.TopicPrefix.TrimEnd('/')}/{type}".ToLower();
             if (!_pendingTopicProducer.Contains(topic))
             {
-                var t = _producers.Keys.FirstOrDefault(x => x.EndsWith(topic));
-                if (string.IsNullOrWhiteSpace(t))
+                var p = _producers.FirstOrDefault(x => x.Key == topic && x.Value.ContainsKey($"{type.ToLower()}-{persistenceid}")).Value?.Values.FirstOrDefault();
+                if (p == null)
                 {
-                    CreateProducer(persistenceid, type);
+                    switch (type.ToLower())
+                    {
+                        case "journal":
+                            CreateJournalProducer(persistenceid);
+                            break;
+                    }
                     _pendingTopicProducer.Add(topic);
                     return (null, null);
                 }
-                return (t, _producers[t]) ;
+                return (topic, p) ;
             }
             return (null, null);
         }
