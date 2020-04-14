@@ -5,7 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-namespace Akka.Persistence.MongoDb.Snapshot
+namespace Akka.Persistence.Pulsar.Snapshot
 {
     /// <summary>
     /// Class used for storing a Snapshot as BsonDocument
@@ -20,10 +20,10 @@ namespace Akka.Persistence.MongoDb.Snapshot
 
         public long Timestamp { get; set; }
 
-        public object Snapshot { get; set; }
+        public byte[] Snapshot { get; set; }
 
         public string Manifest { get; set; }
 
-        public int? SerializerId { get; set; }
+        public int SerializerId { get; set; }
     }
 }

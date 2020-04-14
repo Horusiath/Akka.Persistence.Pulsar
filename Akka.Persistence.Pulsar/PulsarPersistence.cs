@@ -15,13 +15,13 @@ namespace Akka.Persistence.Pulsar
 
     public sealed class PulsarPersistence : IExtension
     {
-        private readonly ExtendedActorSystem system;
+        private readonly ExtendedActorSystem _system;
         public PulsarSettings JournalSettings { get; }
 
         public PulsarPersistence(ExtendedActorSystem system, PulsarSettings journalSettings)
         {
-            this.system = system;
-            this.JournalSettings = journalSettings;
+            _system = system;
+            JournalSettings = journalSettings;
         }
 
         public static PulsarPersistence Get(ActorSystem system) => 

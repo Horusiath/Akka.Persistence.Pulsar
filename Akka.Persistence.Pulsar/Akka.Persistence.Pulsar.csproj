@@ -6,17 +6,26 @@
     </PropertyGroup>
 
     <ItemGroup>
+      <None Remove="reference.conf" />
+    </ItemGroup>
+
+    <ItemGroup>
       <PackageReference Include="Akka.Persistence.Query" Version="1.4.4" />
-      <PackageReference Include="CassandraCSharpDriver" Version="3.14.0" />
-      <PackageReference Include="sharppulsar" Version="0.6.2" />
+      <PackageReference Include="sharppulsar" Version="0.6.3" />
       <PackageReference Include="System.Linq.Async" Version="4.1.1" />
       <PackageReference Include="System.Text.Json" Version="4.7.1" />
     </ItemGroup>
 
     <ItemGroup>
-      <None Update="reference.conf">
+      <EmbeddedResource Include="reference.conf">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-      </None>
+      </EmbeddedResource>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Reference Include="AvroSchemaGenerator">
+        <HintPath>..\..\SchemaGenerator\SchemaGenerator\bin\Release\netstandard2.0\AvroSchemaGenerator.dll</HintPath>
+      </Reference>
     </ItemGroup>
 
 </Project>

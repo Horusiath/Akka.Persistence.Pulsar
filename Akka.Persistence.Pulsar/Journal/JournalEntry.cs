@@ -22,14 +22,14 @@ namespace Akka.Persistence.Pulsar.Journal
 
         public bool IsDeleted { get; set; }
 
-        public object Payload { get; set; }
+        public byte[] Payload { get; set; }
 
         public string Manifest { get; set; }
 
         public long Ordering { get; set; }
 
-        public ICollection<string> Tags { get; set; } = new HashSet<string>();
+        public List<string> Tags { get; set; }
       
-        public int? SerializerId { get; set; }
+        public int SerializerId { get; set; }
     }
 }

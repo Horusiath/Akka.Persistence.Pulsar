@@ -15,15 +15,15 @@ namespace Akka.Persistence.Pulsar.Query
 {
     public sealed class PulsarReadJournalProvider : IReadJournalProvider
     {
-        private readonly ExtendedActorSystem system;
-        private readonly PulsarSettings settings;
+        private readonly ExtendedActorSystem _system;
+        private readonly Config _config;
 
         public PulsarReadJournalProvider(ExtendedActorSystem system, Config config)
         {
-            this.system = system;
-            this.settings = new PulsarSettings(config);
+            _system = system;
+            _config = config;
         }
 
-        public IReadJournal GetReadJournal() => new PulsarReadJournal(system, settings);
+        public IReadJournal GetReadJournal() => new PulsarReadJournal(_system, _config);
     }
 }

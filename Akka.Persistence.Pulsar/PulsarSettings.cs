@@ -23,7 +23,6 @@ namespace Akka.Persistence.Pulsar
             ServiceUrl = config.GetString("service-url", "pulsar://localhost:6650");
             VerifyCertificateAuthority = config.GetBoolean("verify-certificate-authority", true);
             VerifyCertificateName = config.GetBoolean("verify-cerfiticate-name", false);
-            JwtToken = config.HasPath("jwt-token") ? config.GetString("jwt-token") : null;
             UseProxy = config.GetBoolean("use-proxy", false);
             AuthClass = config.HasPath("auth-class") ? config.GetString("auth-class") : "";
             AuthParam = config.HasPath("auth-param") ? config.GetString("auth-param") : "";
@@ -49,7 +48,6 @@ namespace Akka.Persistence.Pulsar
         public string AuthClass { get; set; }
         public string AuthParam { get; set; }
         public bool UseProxy { get; set; }
-        public string JwtToken { get; set; }
         public bool VerifyCertificateAuthority { get; set; }
         public bool VerifyCertificateName { get; set; }
         public X509Certificate2 TrustedCertificateAuthority { get; set; }

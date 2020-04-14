@@ -46,8 +46,7 @@ namespace Akka.Persistence.Pulsar.Query
         /// <returns></returns>
         public static Config DefaultConfiguration()
         {
-            return ConfigurationFactory.FromResource<PulsarReadJournal>(
-                "Akka.Persistence.Pulsar.reference.conf");
+            return ConfigurationFactory.FromResource<PulsarReadJournal>("Akka.Persistence.Pulsar.reference.conf");
         }
 
         /// <summary>

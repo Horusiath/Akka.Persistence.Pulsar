@@ -15,10 +15,12 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.Event;
 using Akka.Persistence.Journal;
+using Akka.Persistence.Pulsar.Query;
 using Akka.Serialization;
 using SharpPulsar.Akka;
 using SharpPulsar.Akka.Configuration;
@@ -35,7 +37,6 @@ namespace Akka.Persistence.Pulsar.Journal
         private readonly PulsarSettings _settings;
         private readonly ILoggingAdapter _log = Context.GetLogger();
         private readonly PulsarSystem _client;
-        private long _readerCount;
         private readonly Serializer _serializer;
         private static readonly Type PersistentRepresentationType = typeof(IPersistentRepresentation);
         public static readonly ConcurrentDictionary<string, Dictionary<string, IActorRef>> _producers = new ConcurrentDictionary<string, Dictionary<string, IActorRef>>();
@@ -52,7 +53,6 @@ namespace Akka.Persistence.Pulsar.Journal
         private Akka.Serialization.Serialization _serialization;
 
         private JsonSchema _journalEntrySchema;
-        private JsonSchema _metadataEntrySchema;
 
         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
 
@@ -64,7 +64,6 @@ namespace Akka.Persistence.Pulsar.Journal
         public PulsarJournal(PulsarSettings settings)
         {
             _journalEntrySchema = JsonSchema.Of(typeof(JournalEntry));
-            _metadataEntrySchema = JsonSchema.Of(typeof(MetadataEntry));
             _producerListener = new DefaultProducerListener(o =>
             {
                 _log.Info(o.ToString());
@@ -76,9 +75,10 @@ namespace Akka.Persistence.Pulsar.Journal
                 {
                     _producers[to] = new Dictionary<string, IActorRef> { { n, p } };
                 }
+                _pendingTopicProducer.Remove(to);
             }, s =>
             {
-                //save messageid in pulsar to be queried using presto sql
+                _log.Info(s);
             });
 
             _serializer = Context.System.Serialization.FindSerializerForType(PersistentRepresentationType);
@@ -99,28 +99,48 @@ namespace Akka.Persistence.Pulsar.Journal
         //Is ReplayMessagesAsync called once per actor lifetime?
         public override async Task ReplayMessagesAsync(IActorContext context, string persistenceId, long fromSequenceNr, long toSequenceNr, long max, Action<IPersistentRepresentation> recoveryCallback)
         {
+            NotifyNewPersistenceIdAdded(persistenceId);
             CreateJournalProducer(persistenceId);
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
             var queryActive = true;
-            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where persistenceid = {persistenceId} AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} LIMIT {max}",
+            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where persistenceid = '{persistenceId}' AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY SequenceNr ASC LIMIT {max}",
                 d =>
                 {
-                    if (d.ContainsKey("Finished"))
+                    try
                     {
-                        queryActive = false;
-                        return;
+                        if (d.ContainsKey("Finished"))
+                        {
+                            queryActive = false;
+                            return;
+                        }
+                        var m = JsonSerializer.Deserialize<Dictionary<string, object>>(d["Message"]);
+                        var id  = m["Id"].ToString();
+                        var persistenceId = m["PersistenceId"].ToString();
+                        var sequenceNr = long.Parse(m["SequenceNr"].ToString());
+                        var  ordering= long.Parse(m["Ordering"].ToString());
+                        var isDeleted = Convert.ToBoolean(m["IsDeleted"]);
+                        var manifest = m["Manifest"].ToString();
+                        var payload = (byte[])m["Payload"];
+                        var serializerId = Convert.ToInt32(m["SerializerId"]);
+                        var tags = (List<string>) m["Tags"];
+                        var entery = new JournalEntry
+                        {
+                            Id = id,
+                            IsDeleted = isDeleted,
+                            Manifest = manifest,
+                            Ordering = ordering,
+                            Payload =  payload,
+                            PersistenceId = persistenceId,
+                            SequenceNr = sequenceNr,
+                            SerializerId = serializerId,
+                            Tags = tags
+                        };
+                        recoveryCallback(ToPersistenceRepresentation(entery, context.Sender));
                     }
-                    var m = JsonSerializer.Deserialize<Dictionary<string, object>>(d["Message"]);
-                    var persistenceId = m["PersistenceId"].ToString();
-                    var sequenceNr = long.Parse(m["SequenceNr"].ToString());
-                    var isDeleted = Convert.ToBoolean(m["IsDeleted"]);
-                    var manifest = m["Manifest"].ToString();
-                    var payload = m["Payload"];
-                    var serializerId = Convert.ToInt32(m["SerializerId"]);
-                    // TODO: hack. Replace when https://github.com/akkadotnet/akka.net/issues/3811
-                    var deserialized = context.System.Serialization.Deserialize((byte[])payload, serializerId, manifest);
-                    recoveryCallback(new Persistent(deserialized, sequenceNr, persistenceId, manifest, isDeleted,
-                        ActorRefs.NoSender, null));
+                    catch (Exception e)
+                    {
+                        context.System.Log.Error(e.ToString());
+                    }
                 }, e =>
                 {
                     context.System.Log.Error(e.ToString());
@@ -138,10 +158,30 @@ namespace Akka.Persistence.Pulsar.Journal
         /// </summary>
         public override async Task<long> ReadHighestSequenceNrAsync(string persistenceId, long fromSequenceNr)
         {
-            //TODO: how to read the latest known sequence nr in pulsar? Theoretically it's the last element in virtual
-            // topic belonging to that persistenceId.
-            var (snr, _) = await _metadataStore.GetLatestStartMessageId(persistenceId);
-            return snr;
+            NotifyNewPersistenceIdAdded(persistenceId);
+            var seq = 0L;
+            var queryActive = true;
+            _client.QueryData(new QueryData($"select SequenceNr from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal WHERE PersistenceId = {persistenceId} ORDER BY SequenceNr DESC LIMIT 1",
+                d =>
+                {
+                    if (d.ContainsKey("Finished"))
+                    {
+                        queryActive = false;
+                        return;
+                    }
+                    var m = JsonSerializer.Deserialize<Dictionary<string, object>>(d["Message"]);
+                    var id = long.Parse(m["SequenceNr"].ToString());
+                    seq = id;
+                }, e =>
+                {
+                    _log.Error(e.ToString());
+                }, _settings.PrestoServer, true));
+            while (queryActive)
+            {
+                await Task.Delay(100);
+            }
+
+            return seq;
         }
         /// <summary>
         /// Writes a batch of messages. Each <see cref="AtomicWrite"/> can have one or many <see cref="IPersistentRepresentation"/>
@@ -152,75 +192,92 @@ namespace Akka.Persistence.Pulsar.Journal
         /// </summary>
         protected override async Task<IImmutableList<Exception>> WriteMessagesAsync(IEnumerable<AtomicWrite> messages)
         {
-            
-            var failures = ImmutableArray.CreateBuilder<Exception>(0);
-            foreach (var write in messages)
-            {
-                try
-                {
-                    var persistentMessages = (IImmutableList<IPersistentRepresentation>) write.Payload;
-                    foreach (var message in persistentMessages)
-                    {
-                        //var topic = Utils.Journal.PrepareTopic($"Journal-{message.PersistenceId}".ToLower());
-                        var (topic,producer) = GetProducer(message.PersistenceId, "Journal");
-                        while (producer == null)
-                        {
-                            (topic, producer) = GetProducer(message.PersistenceId, "Journal");
-                            await Task.Delay(1000);
-                        }
-                        //var producer = GetProducer(message.PersistenceId, "Journal");
-                        var metadata = new Dictionary<string, object>
-                        {
-                            ["Key"] = $"{message.PersistenceId}-{message.SequenceNr}",
-                            ["SequenceId"] = message.SequenceNr
-                        };
-                        var properties = new Dictionary<string, string>();
-                        if(message.Payload is Tagged t)
-                        {
-                            var tgs = 0;
-                            foreach(var tg in t.Tags)
-                            {
-                                properties.Add($"Tag-{tgs}", tg);//Tag messages
-                                tgs++;
-                            }
-                        }
+            var allTags = ImmutableHashSet<string>.Empty;
+            var persistentIds = new HashSet<string>();
+            var messageList = messages.ToList();
 
-                        metadata["Properties"] = properties;
-                        var journal = Serialize(message); 
-                        producer.Tell(new Send(journal, topic, metadata.ToImmutableDictionary()));
+            var writeTasks = messageList.Select(async message =>
+            {
+                var persistentMessages = ((IImmutableList<IPersistentRepresentation>)message.Payload);
+
+                if (HasTagSubscribers)
+                {
+                    foreach (var p in persistentMessages)
+                    {
+                        if (p.Payload is Tagged t)
+                        {
+                            allTags = allTags.Union(t.Tags);
+                        }
                     }
                 }
-                catch (Exception e)
+
+                var (topic, producer) = GetProducer(message.PersistenceId, "Journal");
+                while (producer == null)
                 {
-                    failures.Add(e);
+                    (topic, producer) = GetProducer(message.PersistenceId, "Journal");
+                    await Task.Delay(1000);
+                }
+                var journalEntries = persistentMessages.Select(ToJournalEntry).Select(x => new Send(x, topic, ImmutableDictionary<string, object>.Empty)).ToList();
+                _client.BulkSend(new BulkSend(journalEntries, topic), producer);
+                if (HasPersistenceIdSubscribers)
+                    persistentIds.Add(message.PersistenceId);
+            });
+
+            var result = await Task<IImmutableList<Exception>>
+                .Factory
+                .ContinueWhenAll(writeTasks.ToArray(),
+                    tasks => tasks.Select(t => t.IsFaulted ? TryUnwrapException(t.Exception) : null).ToImmutableList());
+
+            if (HasPersistenceIdSubscribers)
+            {
+                foreach (var id in persistentIds)
+                {
+                    NotifyPersistenceIdChange(id);
                 }
             }
 
-            return failures.ToImmutable();
-        }
-        
-        private async Task SaveMessageId(string persistenceid, long sequenceNr, MessageId messageId, long eventTime)
-        {
-           //await _metadataStore.SaveStartMessageId(persistenceid, sequenceNr, messageId, eventTime);
+            if (HasTagSubscribers && allTags.Count != 0)
+            {
+                foreach (var tag in allTags)
+                {
+                    NotifyTagChange(tag);
+                }
+            }
+
+            return result;
         }
 
-        /// <summary>
-        /// Deletes all events stored in a single logical event stream (pulsar virtual topic), starting from the
-        /// beginning of stream up to <paramref name="toSequenceNr"/> (inclusive?).
-        /// </summary>
-        protected override async Task DeleteMessagesToAsync(string persistenceId, long toSequenceNr)
+        protected override Task DeleteMessagesToAsync(string persistenceId, long toSequenceNr)
         {
-            //Pulsar stores unacknowledged messages forever
-            //We can delete messages if retention policy is not set by using pulsar consumer
-            /*var option = new ConsumerOptions($"persistent-consumer-{persistenceId}", Utils.Journal.PrepareTopic($"Journal-{persistenceId}".ToLower()));
-            await using var consumer = _client.CreateConsumer(option);
-            var messages = consumer.Messages()
-                .Where(x => x.SequenceId <= (ulong)toSequenceNr);
-            await foreach (var message in messages)
+            return Task.CompletedTask;
+        }
+
+        private JournalEntry ToJournalEntry(IPersistentRepresentation message)
+        {
+            object payload = message.Payload;
+            if (message.Payload is Tagged tagged)
             {
-                await consumer.Acknowledge(message.MessageId); //Acknowledged messages are deleted
+                payload = tagged.Payload;
+                message = message.WithPayload(payload); // need to update the internal payload when working with tags
             }
-            await consumer.DisposeAsync();//is this good?*/
+
+
+            var serializer = _serialization.FindSerializerFor(message);
+            var binary = serializer.ToBinary(message);
+
+
+            return new JournalEntry
+            {
+                Id = message.PersistenceId + "_" + message.SequenceNr,
+                Ordering = DateTimeHelper.CurrentUnixTimeMillis(), // Auto-populates with timestamp
+                IsDeleted = message.IsDeleted,
+                Payload = binary,
+                PersistenceId = message.PersistenceId,
+                SequenceNr = message.SequenceNr,
+                Manifest = string.Empty, // don't need a manifest here - it's embedded inside the PersistentMessage
+                Tags = tagged.Tags?.ToList(),
+                SerializerId = -1 // don't need a serializer ID here either; only for backwards-comat
+            };
         }
         private void CreateJournalProducer(string persistenceid)
         {
@@ -261,14 +318,262 @@ namespace Akka.Persistence.Pulsar.Journal
             base.PostStop();
             _client.DisposeAsync().GetAwaiter();
         }
-        private IPersistentRepresentation Deserialize(byte[] bytes)
-        {
-            return (IPersistentRepresentation)_serializer.FromBinary(bytes, PersistentRepresentationType);
-        }
-
+        
         private byte[] Serialize(IPersistentRepresentation message)
         {
             return _serializer.ToBinary(message);
         }
+        private Persistent ToPersistenceRepresentation(JournalEntry entry, IActorRef sender)
+        {
+            var legacy = entry.SerializerId > 0 || !string.IsNullOrEmpty(entry.Manifest);
+            if (!legacy)
+            {
+                var ser = _serialization.FindSerializerForType(typeof(Persistent));
+                return ser.FromBinary<Persistent>((byte[])entry.Payload);
+            }
+
+            int? serializerId = null;
+            Type type = null;
+
+            // legacy serialization
+            if (!(entry.SerializerId > 0) && !string.IsNullOrEmpty(entry.Manifest))
+                type = Type.GetType(entry.Manifest, true);
+            else
+                serializerId = entry.SerializerId;
+
+            if (entry.Payload is byte[] bytes)
+            {
+                object deserialized = null;
+                if (serializerId.HasValue)
+                {
+                    deserialized = _serialization.Deserialize(bytes, serializerId.Value, entry.Manifest);
+                }
+                else
+                {
+                    var deserializer = _serialization.FindSerializerForType(type);
+                    deserialized = deserializer.FromBinary(bytes, type);
+                }
+
+                if (deserialized is Persistent p)
+                    return p;
+
+                return new Persistent(deserialized, entry.SequenceNr, entry.PersistenceId, entry.Manifest, entry.IsDeleted, sender);
+            }
+            else // backwards compat for object serialization - Payload was already deserialized by BSON
+            {
+                return new Persistent(entry.Payload, entry.SequenceNr, entry.PersistenceId, entry.Manifest,
+                    entry.IsDeleted, sender);
+            }
+
+        }
+
+        protected override bool ReceivePluginInternal(object message)
+        {
+            switch (message)
+            {
+                case ReplayTaggedMessages replay:
+                    ReplayTaggedMessagesAsync(replay)
+                        .PipeTo(replay.ReplyTo, success: h => new RecoverySuccess(h), failure: e => new ReplayMessagesFailure(e));
+                    break;
+                case SubscribePersistenceId subscribe:
+                    AddPersistenceIdSubscriber(Sender, subscribe.PersistenceId);
+                    Context.Watch(Sender);
+                    break;
+                case SubscribeAllPersistenceIds subscribe:
+                    AddAllPersistenceIdSubscriber(Sender);
+                    Context.Watch(Sender);
+                    break;
+                case SubscribeTag subscribe:
+                    AddTagSubscriber(Sender, subscribe.Tag);
+                    Context.Watch(Sender);
+                    break;
+                case Terminated terminated:
+                    RemoveSubscriber(terminated.ActorRef);
+                    break;
+                default:
+                    return false;
+            }
+
+            return true;
+        }
+        /// <summary>
+        /// Replays all events with given tag withing provided boundaries from current database.
+        /// </summary>
+        /// <param name="replay">TBD</param>
+        /// <returns>TBD</returns>
+        private async Task<long> ReplayTaggedMessagesAsync(ReplayTaggedMessages replay)
+        {
+            /*
+             *  NOTE: limit is used like a pagination value, not a cap on the amount
+             * of data returned by a query. This was at the root of https://github.com/akkadotnet/Akka.Persistence.MongoDB/issues/80
+             */
+            // Limit allows only integer
+            var limitValue = replay.Max >= int.MaxValue ? int.MaxValue : (int)replay.Max;
+            var fromSequenceNr = replay.FromOffset;
+            var toSequenceNr = replay.ToOffset;
+            var tag = replay.Tag;
+            var queryActive = true;
+            var maxOrderingId = 0L;
+            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where contains(Tags, '{tag}')  AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY Ordering ASC LIMIT {limitValue}",
+                d =>
+                {
+                    if (d.ContainsKey("Finished"))
+                    {
+                        queryActive = false;
+                        return;
+                    }
+                    var m = JsonSerializer.Deserialize<Dictionary<string, object>>(d["Message"]);
+                    var id = m["Id"].ToString();
+                    var persistenceId = m["PersistenceId"].ToString();
+                    var sequenceNr = long.Parse(m["SequenceNr"].ToString());
+                    var ordering = long.Parse(m["Ordering"].ToString());
+                    var isDeleted = Convert.ToBoolean(m["IsDeleted"]);
+                    var manifest = m["Manifest"].ToString();
+                    var payload = (byte[])m["Payload"];
+                    var serializerId = Convert.ToInt32(m["SerializerId"]);
+                    var tags = (List<string>)m["Tags"];
+                    maxOrderingId = ordering;
+                    var entry = new JournalEntry
+                    {
+                        Id = id,
+                        IsDeleted = isDeleted,
+                        Manifest = manifest,
+                        Ordering = ordering,
+                        Payload = payload,
+                        PersistenceId = persistenceId,
+                        SequenceNr = sequenceNr,
+                        SerializerId = serializerId,
+                        Tags = tags
+                    };
+                    var persistent = ToPersistenceRepresentation(entry, ActorRefs.NoSender);
+                    foreach (var adapted in AdaptFromJournal(persistent))
+                        replay.ReplyTo.Tell(new ReplayedTaggedMessage(adapted, tag, entry.Ordering),
+                            ActorRefs.NoSender);
+                }, e =>
+                {
+                    _log.Error(e.ToString());
+                }, _settings.PrestoServer, true));
+            while (queryActive)
+            {
+                await Task.Delay(500);
+            }
+
+            return maxOrderingId;
+        }
+
+        private void AddAllPersistenceIdSubscriber(IActorRef subscriber)
+        {
+            lock (_allPersistenceIdSubscribers)
+            {
+                _allPersistenceIdSubscribers.Add(subscriber);
+            }
+            subscriber.Tell(new CurrentPersistenceIds(GetAllPersistenceIds()));
+        }
+
+        private void AddTagSubscriber(IActorRef subscriber, string tag)
+        {
+            if (!_tagSubscribers.TryGetValue(tag, out var subscriptions))
+            {
+                subscriptions = new HashSet<IActorRef>();
+                _tagSubscribers.Add(tag, subscriptions);
+            }
+
+            subscriptions.Add(subscriber);
+        }
+
+        private IEnumerable<string> GetAllPersistenceIds()
+        {
+            var list = new List<string>();
+            var queryActive = true;
+            _client.QueryData(new QueryData($"select DISTINCT PersistenceId from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal",
+                d =>
+                {
+                    if (d.ContainsKey("Finished"))
+                    {
+                        queryActive = false;
+                        return;
+                    }
+                    var m = JsonSerializer.Deserialize<Dictionary<string, object>>(d["Message"]);
+                    var id = m["PersistenceId"].ToString();
+                    list.Add(id);
+                }, e =>
+                {
+                    _log.Error(e.ToString());
+                }, _settings.PrestoServer, true));
+            while (queryActive)
+            {
+                Thread.Sleep(100);
+            }
+
+            return list;
+        }
+
+        private void AddPersistenceIdSubscriber(IActorRef subscriber, string persistenceId)
+        {
+            if (!_persistenceIdSubscribers.TryGetValue(persistenceId, out var subscriptions))
+            {
+                subscriptions = new HashSet<IActorRef>();
+                _persistenceIdSubscribers.Add(persistenceId, subscriptions);
+            }
+
+            subscriptions.Add(subscriber);
+        }
+
+        private void RemoveSubscriber(IActorRef subscriber)
+        {
+            var pidSubscriptions = _persistenceIdSubscribers.Values.Where(x => x.Contains(subscriber));
+            foreach (var subscription in pidSubscriptions)
+                subscription.Remove(subscriber);
+
+            var tagSubscriptions = _tagSubscribers.Values.Where(x => x.Contains(subscriber));
+            foreach (var subscription in tagSubscriptions)
+                subscription.Remove(subscriber);
+
+            _allPersistenceIdSubscribers.Remove(subscriber);
+        }
+
+        protected bool HasAllPersistenceIdSubscribers => _allPersistenceIdSubscribers.Count != 0;
+        protected bool HasTagSubscribers => _tagSubscribers.Count != 0;
+        protected bool HasPersistenceIdSubscribers => _persistenceIdSubscribers.Count != 0;
+
+        private void NotifyNewPersistenceIdAdded(string persistenceId)
+        {
+            var isNew = TryAddPersistenceId(persistenceId);
+            if (isNew && HasAllPersistenceIdSubscribers)
+            {
+                var added = new PersistenceIdAdded(persistenceId);
+                foreach (var subscriber in _allPersistenceIdSubscribers)
+                    subscriber.Tell(added);
+            }
+        }
+
+        private bool TryAddPersistenceId(string persistenceId)
+        {
+            lock (_allPersistenceIds)
+            {
+                return _allPersistenceIds.Add(persistenceId);
+            }
+        }
+
+        private void NotifyPersistenceIdChange(string persistenceId)
+        {
+            if (_persistenceIdSubscribers.TryGetValue(persistenceId, out var subscribers))
+            {
+                var changed = new EventAppended(persistenceId);
+                foreach (var subscriber in subscribers)
+                    subscriber.Tell(changed);
+            }
+        }
+
+        private void NotifyTagChange(string tag)
+        {
+            if (_tagSubscribers.TryGetValue(tag, out var subscribers))
+            {
+                var changed = new TaggedEventAppended(tag);
+                foreach (var subscriber in subscribers)
+                    subscriber.Tell(changed);
+            }
+        }
+
     }
 }
