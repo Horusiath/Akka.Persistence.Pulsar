@@ -85,7 +85,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
         {
             var queryActive = true;
             SelectedSnapshot shot = null;
-            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".snapshot where persistenceid = '{persistenceId}' AND SequenceNr <= {criteria.MaxSequenceNr} AND Timestamp <= {new DateTimeOffset(criteria.MaxTimeStamp).ToUnixTimeMilliseconds()} ORDER BY SequenceNr DESC LIMIT 1",
+            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".snapshot WHERE  PersistenceId = '{persistenceId}' AND SequenceNr <= bigint '{criteria.MaxSequenceNr}' AND Timestamp <= bigint '{new DateTimeOffset(criteria.MaxTimeStamp).ToUnixTimeMilliseconds()}' ORDER BY SequenceNr DESC LIMIT 1",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
@@ -99,7 +99,10 @@ namespace Akka.Persistence.Pulsar.Snapshot
                 {
                     _log.Error(e.ToString());
                     queryActive = false;
-                }, _settings.PrestoServer, true));
+                }, _settings.PrestoServer, l =>
+                {
+                    _log.Info(l);
+                },true));
             while (queryActive)
             {
                 await Task.Delay(500);
