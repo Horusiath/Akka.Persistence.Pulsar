@@ -64,6 +64,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
             {
 
             });
+            _serialization = Context.System.Serialization;
             _serializer = Context.System.Serialization.FindSerializerForType(SnapshotType);
             _settings = settings;
             _client = settings.CreateSystem();
@@ -97,6 +98,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
                 }, e =>
                 {
                     _log.Error(e.ToString());
+                    queryActive = false;
                 }, _settings.PrestoServer, true));
             while (queryActive)
             {

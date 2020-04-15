@@ -80,7 +80,7 @@ namespace Akka.Persistence.Pulsar.Journal
             {
                 _log.Info(s);
             });
-
+            _serialization = Context.System.Serialization;
             _serializer = Context.System.Serialization.FindSerializerForType(PersistentRepresentationType);
             _settings = settings;
             _client = settings.CreateSystem();
@@ -103,7 +103,7 @@ namespace Akka.Persistence.Pulsar.Journal
             CreateJournalProducer(persistenceId);
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
             var queryActive = true;
-            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where persistenceid = '{persistenceId}' AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY SequenceNr ASC LIMIT {max}",
+            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where persistenceid = {persistenceId} AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY SequenceNr ASC LIMIT {max}",
                 d =>
                 {
                     try
@@ -140,6 +140,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     catch (Exception e)
                     {
                         context.System.Log.Error(e.ToString());
+                        queryActive = false;
                     }
                 }, e =>
                 {
@@ -175,6 +176,7 @@ namespace Akka.Persistence.Pulsar.Journal
                 }, e =>
                 {
                     _log.Error(e.ToString());
+                    queryActive = false;
                 }, _settings.PrestoServer, true));
             while (queryActive)
             {
@@ -275,7 +277,7 @@ namespace Akka.Persistence.Pulsar.Journal
                 PersistenceId = message.PersistenceId,
                 SequenceNr = message.SequenceNr,
                 Manifest = string.Empty, // don't need a manifest here - it's embedded inside the PersistentMessage
-                Tags = tagged.Tags?.ToList(),
+                Tags = tagged.Tags == null? new List<string>() : tagged.Tags.ToList(),
                 SerializerId = -1 // don't need a serializer ID here either; only for backwards-comat
             };
         }
