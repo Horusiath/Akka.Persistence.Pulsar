@@ -187,58 +187,17 @@ namespace Akka.Persistence.Pulsar.Snapshot
                 Id = metadata.PersistenceId + "_" + metadata.SequenceNr,
                 PersistenceId = metadata.PersistenceId,
                 SequenceNr = metadata.SequenceNr,
-                Snapshot = binary,
-                Timestamp = metadata.Timestamp.Ticks,
-                Manifest = manifest,
-                SerializerId = serializer.Identifier
+                Snapshot = Convert.ToBase64String(binary),
+                Timestamp = metadata.Timestamp.Ticks
             };
         }
 
         private SelectedSnapshot ToSelectedSnapshot(SnapshotEntry entry)
         {
-            var legacy = entry.SerializerId > 0 || !string.IsNullOrEmpty(entry.Manifest);
+            var ser = _serialization.FindSerializerForType(typeof(Serialization.Snapshot));
+            var snapshot = ser.FromBinary<Serialization.Snapshot>(Convert.FromBase64String(entry.Snapshot));
+            return new SelectedSnapshot(new SnapshotMetadata(entry.PersistenceId, entry.SequenceNr), snapshot.Data);
 
-            if (!legacy)
-            {
-                var ser = _serialization.FindSerializerForType(typeof(Serialization.Snapshot));
-                var snapshot = ser.FromBinary<Serialization.Snapshot>((byte[])entry.Snapshot);
-                return new SelectedSnapshot(new SnapshotMetadata(entry.PersistenceId, entry.SequenceNr), snapshot.Data);
-            }
-
-            int? serializerId = null;
-            Type type = null;
-
-            // legacy serialization
-            if (!(entry.SerializerId > 0) && !string.IsNullOrEmpty(entry.Manifest))
-                type = Type.GetType(entry.Manifest, true);
-            else
-                serializerId = entry.SerializerId;
-
-            if (entry.Snapshot is byte[] bytes)
-            {
-                object deserialized;
-
-                if (serializerId.HasValue)
-                {
-                    deserialized = _serialization.Deserialize(bytes, serializerId.Value, entry.Manifest);
-                }
-                else
-                {
-                    var deserializer = _serialization.FindSerializerForType(type);
-                    deserialized = deserializer.FromBinary(bytes, type);
-                }
-
-                if (deserialized is Serialization.Snapshot snap)
-                    return new SelectedSnapshot(
-                        new SnapshotMetadata(entry.PersistenceId, entry.SequenceNr, new DateTime(entry.Timestamp)), snap.Data);
-
-                return new SelectedSnapshot(
-                    new SnapshotMetadata(entry.PersistenceId, entry.SequenceNr, new DateTime(entry.Timestamp)), deserialized);
-            }
-
-            // backwards compat - loaded an old snapshot using BSON serialization. No need to deserialize via Akka.NET
-            return new SelectedSnapshot(
-                new SnapshotMetadata(entry.PersistenceId, entry.SequenceNr, new DateTime(entry.Timestamp)), entry.Snapshot);
         }
     }
 }

@@ -101,6 +101,7 @@ namespace Akka.Persistence.Pulsar.Journal
         public override async Task ReplayMessagesAsync(IActorContext context, string persistenceId, long fromSequenceNr, long toSequenceNr, long max, Action<IPersistentRepresentation> recoveryCallback)
         {
             NotifyNewPersistenceIdAdded(persistenceId);
+            //RETENTION POLICY MUST BE SENT AT THE NAMESPACE ELSE TOPIC IS DELETED
             CreateJournalProducer(persistenceId);
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
             var queryActive = true;
@@ -119,22 +120,18 @@ namespace Akka.Persistence.Pulsar.Journal
                         var persistenceId = m["persistenceid"].ToString();
                         var sequenceNr = long.Parse(m["sequencenr"].ToString());
                         var  ordering= long.Parse(m["ordering"].ToString());
-                        var isDeleted = Convert.ToBoolean(m["isdeleted"]);
-                        var manifest = m["manifest"].ToString();
-                        var payload = (byte[])m["payload"];
-                        var serializerId = Convert.ToInt32(m["serializerid"]);
-                        var tags = (List<string>) m["tags"];
+                        var isDeleted = Convert.ToBoolean(m["isdeleted"].ToString());
+                        var payload = m["payload"].ToString();
+                        var tags = m["tags"].ToString();
                         var entery = new JournalEntry
                         {
                             Id = id,
                             IsDeleted = isDeleted,
-                            Manifest = manifest,
                             Ordering = ordering,
-                            Payload = Encoding.UTF8.GetString(payload),
+                            Payload = payload,
                             PersistenceId = persistenceId,
                             SequenceNr = sequenceNr,
-                            SerializerId = serializerId,
-                            Tags = string.Join(",", tags)
+                            Tags = tags
                         };
                         recoveryCallback(ToPersistenceRepresentation(entery, context.Sender));
                     }
@@ -280,12 +277,10 @@ namespace Akka.Persistence.Pulsar.Journal
                 Id = message.PersistenceId + "_" + message.SequenceNr,
                 Ordering = DateTimeHelper.CurrentUnixTimeMillis(), // Auto-populates with timestamp
                 IsDeleted = message.IsDeleted,
-                Payload = Encoding.UTF8.GetString(binary),
+                Payload = Convert.ToBase64String(binary),
                 PersistenceId = message.PersistenceId,
                 SequenceNr = message.SequenceNr,
-                Manifest = string.Empty, // don't need a manifest here - it's embedded inside the PersistentMessage
-                Tags = string.Join(",", tagged.Tags == null ? new List<string>() : tagged.Tags.ToList() ),
-                SerializerId = -1 // don't need a serializer ID here either; only for backwards-comat
+                Tags = string.Join(",", tagged.Tags == null ? new List<string>() : tagged.Tags.ToList() )
             };
         }
 
@@ -303,6 +298,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     .EventListener(_producerListener)
                     .ProducerConfigurationData;
                 _client.CreateProducer(new CreateProducer(_journalEntrySchema, producerConfig));
+                
             }
         }
         private (string topic, IActorRef producer) GetProducer(string persistenceid, string type)
@@ -339,47 +335,8 @@ namespace Akka.Persistence.Pulsar.Journal
         }
         private Persistent ToPersistenceRepresentation(JournalEntry entry, IActorRef sender)
         {
-            var legacy = entry.SerializerId > 0 || !string.IsNullOrEmpty(entry.Manifest);
-            if (!legacy)
-            {
-                var ser = _serialization.FindSerializerForType(typeof(Persistent));
-                return ser.FromBinary<Persistent>(Encoding.UTF8.GetBytes(entry.Payload));
-            }
-
-            int? serializerId = null;
-            Type type = null;
-
-            // legacy serialization
-            if (!(entry.SerializerId > 0) && !string.IsNullOrEmpty(entry.Manifest))
-                type = Type.GetType(entry.Manifest, true);
-            else
-                serializerId = entry.SerializerId;
-
-            if (!string.IsNullOrWhiteSpace(entry.Payload))
-            {
-                var bytes = Encoding.UTF8.GetBytes(entry.Payload);
-                object deserialized = null;
-                if (serializerId.HasValue)
-                {
-                    deserialized = _serialization.Deserialize(bytes, serializerId.Value, entry.Manifest);
-                }
-                else
-                {
-                    var deserializer = _serialization.FindSerializerForType(type);
-                    deserialized = deserializer.FromBinary(bytes, type);
-                }
-
-                if (deserialized is Persistent p)
-                    return p;
-
-                return new Persistent(deserialized, entry.SequenceNr, entry.PersistenceId, entry.Manifest, entry.IsDeleted, sender);
-            }
-            else // backwards compat for object serialization - Payload was already deserialized by BSON
-            {
-                return new Persistent(entry.Payload, entry.SequenceNr, entry.PersistenceId, entry.Manifest,
-                    entry.IsDeleted, sender);
-            }
-
+            var ser = _serialization.FindSerializerForType(typeof(Persistent));
+            return ser.FromBinary<Persistent>(Encoding.UTF8.GetBytes(entry.Payload));
         }
 
         protected override bool ReceivePluginInternal(object message)
@@ -438,27 +395,23 @@ namespace Akka.Persistence.Pulsar.Journal
                         return;
                     }
                     var m = JsonSerializer.Deserialize<Dictionary<string, object>>(d["Message"]);
-                    var id = m["Id"].ToString();
-                    var persistenceId = m["PersistenceId"].ToString();
-                    var sequenceNr = long.Parse(m["SequenceNr"].ToString());
-                    var ordering = long.Parse(m["Ordering"].ToString());
-                    var isDeleted = Convert.ToBoolean(m["IsDeleted"]);
-                    var manifest = m["Manifest"].ToString();
-                    var payload = (byte[])m["Payload"];
-                    var serializerId = Convert.ToInt32(m["SerializerId"]);
-                    var tags = (List<string>)m["Tags"];
+                    var id = m["id"].ToString();
+                    var persistenceId = m["persistenceid"].ToString();
+                    var sequenceNr = long.Parse(m["sequencenr"].ToString());
+                    var ordering = long.Parse(m["ordering"].ToString());
+                    var isDeleted = Convert.ToBoolean(m["isdeleted"].ToString());
+                    var payload = m["payload"].ToString();
+                    var tags = m["Tags"].ToString();
                     maxOrderingId = ordering;
                     var entry = new JournalEntry
                     {
                         Id = id,
                         IsDeleted = isDeleted,
-                        Manifest = manifest,
                         Ordering = ordering,
-                        Payload = Encoding.UTF8.GetString(payload),
+                        Payload = payload,
                         PersistenceId = persistenceId,
                         SequenceNr = sequenceNr,
-                        SerializerId = serializerId,
-                        Tags = string.Join(",", tags)
+                        Tags = tags
                     };
                     var persistent = ToPersistenceRepresentation(entry, ActorRefs.NoSender);
                     foreach (var adapted in AdaptFromJournal(persistent))

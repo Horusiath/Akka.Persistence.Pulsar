@@ -24,11 +24,7 @@ namespace Akka.Persistence.Pulsar.Journal
 
         public string Payload { get; set; }
 
-        public string Manifest { get; set; }
-
         public long Ordering { get; set; }
         public string Tags { get; set; }
-      
-        public int SerializerId { get; set; }
     }
 }

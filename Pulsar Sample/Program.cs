@@ -28,8 +28,9 @@ namespace Pulsar_Sample
             _timeStream.Subscribe(e=> { Console.WriteLine(e.Event); });
             while(true)
             {
+                Thread.Sleep(TimeSpan.FromSeconds(30));
                 sampleActor.Tell(new ReadSystemCurrentTimeUtc());
-                Thread.Sleep(TimeSpan.FromSeconds(5));
+                
                 Console.WriteLine("Tell Actor");
             }
         }

@@ -20,10 +20,6 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
         public long Timestamp { get; set; }
 
-        public byte[] Snapshot { get; set; }
-
-        public string Manifest { get; set; }
-
-        public int SerializerId { get; set; }
+        public string Snapshot { get; set; }
     }
 }
