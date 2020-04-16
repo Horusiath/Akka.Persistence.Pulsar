@@ -374,7 +374,7 @@ namespace Akka.Persistence.Pulsar.Journal
             var tag = replay.Tag;
             var queryActive = true;
             var maxOrderingId = 0L;
-            _client.QueryData(new QueryData($"select Ordering, Payload from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where contains(SELECT split(Tags, ','), '{tag}')  AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY Ordering ASC LIMIT {limitValue}",
+            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where contains(SELECT split(Tags, ','), '{tag}')  AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY Ordering ASC LIMIT {limitValue}",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
@@ -384,10 +384,10 @@ namespace Akka.Persistence.Pulsar.Journal
                     }
                     
                     var m = JsonSerializer.Deserialize<Dictionary<string, object>>(d["Message"]);
-                    if (m.ContainsKey("Ordering") && m.ContainsKey("Payload"))
+                    if (m.ContainsKey("ordering") && m.ContainsKey("payload"))
                     {
-                        var ordering = long.Parse(m["Ordering"].ToString());
-                        var payload = Convert.FromBase64String(m["Payload"].ToString());
+                        var ordering = long.Parse(m["ordering"].ToString());
+                        var payload = Convert.FromBase64String(m["payload"].ToString());
                         maxOrderingId = ordering;
                         var persistent = Deserialize(payload);
                         foreach (var adapted in AdaptFromJournal(persistent))
