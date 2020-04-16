@@ -100,12 +100,14 @@ namespace Akka.Persistence.Pulsar.Journal
         //Is ReplayMessagesAsync called once per actor lifetime?
         public override async Task ReplayMessagesAsync(IActorContext context, string persistenceId, long fromSequenceNr, long toSequenceNr, long max, Action<IPersistentRepresentation> recoveryCallback)
         {
+            if (max > 2147483647)
+                max = 2147483647; // presto does not support limit > 2147483647
             NotifyNewPersistenceIdAdded(persistenceId);
             //RETENTION POLICY MUST BE SENT AT THE NAMESPACE ELSE TOPIC IS DELETED
             CreateJournalProducer(persistenceId);
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
             var queryActive = true;
-            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where persistenceid = '{persistenceId}' AND SequenceNr BETWEEN bigint '{fromSequenceNr}' AND bigint '{toSequenceNr}' ORDER BY SequenceNr ASC LIMIT {max}",
+            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where PersistenceId = '{persistenceId}' AND SequenceNr BETWEEN bigint '{fromSequenceNr}' AND bigint '{toSequenceNr}' ORDER BY SequenceNr ASC LIMIT {max}",
                 d =>
                 {
                     try
@@ -115,25 +117,13 @@ namespace Akka.Persistence.Pulsar.Journal
                             queryActive = false;
                             return;
                         }
+                        
                         var m = JsonSerializer.Deserialize<Dictionary<string, object>>(d["Message"]);
-                        var id  = m["id"].ToString();
-                        var persistenceId = m["persistenceid"].ToString();
-                        var sequenceNr = long.Parse(m["sequencenr"].ToString());
-                        var  ordering= long.Parse(m["ordering"].ToString());
-                        var isDeleted = Convert.ToBoolean(m["isdeleted"].ToString());
-                        var payload = m["payload"].ToString();
-                        var tags = m["tags"].ToString();
-                        var entery = new JournalEntry
+                        if ( m.ContainsKey("payload"))
                         {
-                            Id = id,
-                            IsDeleted = isDeleted,
-                            Ordering = ordering,
-                            Payload = payload,
-                            PersistenceId = persistenceId,
-                            SequenceNr = sequenceNr,
-                            Tags = tags
-                        };
-                        recoveryCallback(ToPersistenceRepresentation(entery, context.Sender));
+                            var payload = Convert.FromBase64String(m["payload"].ToString());
+                            recoveryCallback(Deserialize(payload));
+                        }
                     }
                     catch (Exception e)
                     {
@@ -260,16 +250,13 @@ namespace Akka.Persistence.Pulsar.Journal
 
         private JournalEntry ToJournalEntry(IPersistentRepresentation message)
         {
-            object payload = message.Payload;
             if (message.Payload is Tagged tagged)
             {
-                payload = tagged.Payload;
+                var payload = tagged.Payload;
                 message = message.WithPayload(payload); // need to update the internal payload when working with tags
             }
 
-
-            var serializer = _serialization.FindSerializerFor(message);
-            var binary = serializer.ToBinary(message);
+            var binary = Serialize(message);
 
 
             return new JournalEntry
@@ -333,12 +320,11 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             return _serializer.ToBinary(message);
         }
-        private Persistent ToPersistenceRepresentation(JournalEntry entry, IActorRef sender)
+        private IPersistentRepresentation Deserialize(byte[] bytes)
         {
-            var ser = _serialization.FindSerializerForType(typeof(Persistent));
-            return ser.FromBinary<Persistent>(Encoding.UTF8.GetBytes(entry.Payload));
+            return (IPersistentRepresentation)_serializer.FromBinary(bytes, PersistentRepresentationType);
         }
-
+        
         protected override bool ReceivePluginInternal(object message)
         {
             switch (message)
@@ -381,12 +367,14 @@ namespace Akka.Persistence.Pulsar.Journal
              */
             // Limit allows only integer
             var limitValue = replay.Max >= int.MaxValue ? int.MaxValue : (int)replay.Max;
+            if ((long)limitValue > 2147483647)
+                limitValue = 2147483647; // presto does not support limit > 2147483647
             var fromSequenceNr = replay.FromOffset;
             var toSequenceNr = replay.ToOffset;
             var tag = replay.Tag;
             var queryActive = true;
             var maxOrderingId = 0L;
-            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where contains(SELECT split(Tags, ','), '{tag}')  AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY Ordering ASC LIMIT {limitValue}",
+            _client.QueryData(new QueryData($"select Ordering, Payload from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where contains(SELECT split(Tags, ','), '{tag}')  AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY Ordering ASC LIMIT {limitValue}",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
@@ -394,29 +382,19 @@ namespace Akka.Persistence.Pulsar.Journal
                         queryActive = false;
                         return;
                     }
+                    
                     var m = JsonSerializer.Deserialize<Dictionary<string, object>>(d["Message"]);
-                    var id = m["id"].ToString();
-                    var persistenceId = m["persistenceid"].ToString();
-                    var sequenceNr = long.Parse(m["sequencenr"].ToString());
-                    var ordering = long.Parse(m["ordering"].ToString());
-                    var isDeleted = Convert.ToBoolean(m["isdeleted"].ToString());
-                    var payload = m["payload"].ToString();
-                    var tags = m["Tags"].ToString();
-                    maxOrderingId = ordering;
-                    var entry = new JournalEntry
+                    if (m.ContainsKey("Ordering") && m.ContainsKey("Payload"))
                     {
-                        Id = id,
-                        IsDeleted = isDeleted,
-                        Ordering = ordering,
-                        Payload = payload,
-                        PersistenceId = persistenceId,
-                        SequenceNr = sequenceNr,
-                        Tags = tags
-                    };
-                    var persistent = ToPersistenceRepresentation(entry, ActorRefs.NoSender);
-                    foreach (var adapted in AdaptFromJournal(persistent))
-                        replay.ReplyTo.Tell(new ReplayedTaggedMessage(adapted, tag, entry.Ordering),
-                            ActorRefs.NoSender);
+                        var ordering = long.Parse(m["Ordering"].ToString());
+                        var payload = Convert.FromBase64String(m["Payload"].ToString());
+                        maxOrderingId = ordering;
+                        var persistent = Deserialize(payload);
+                        foreach (var adapted in AdaptFromJournal(persistent))
+                            replay.ReplyTo.Tell(new ReplayedTaggedMessage(adapted, tag, ordering),
+                                ActorRefs.NoSender);
+                    }
+                    
                 }, e =>
                 {
                     _log.Error(e.ToString());

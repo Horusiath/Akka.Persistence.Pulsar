@@ -8,6 +8,7 @@ using Pulsar_Sample.Command;
 using Pulsar_Sample.Observer;
 using System;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 
 namespace Pulsar_Sample
@@ -25,7 +26,7 @@ namespace Pulsar_Sample
             var sampleActor = actorSystem.ActorOf(props, "SampleActor");
             var timeSource = readJournal.EventsByPersistenceId("sampleActor", 0L, long.MaxValue);
             _timeStream = new SourceObservable<EventEnvelope>(timeSource, mat);
-            _timeStream.Subscribe(e=> { Console.WriteLine(e.Event); });
+            _timeStream.Subscribe(e=> { Console.WriteLine($"{JsonSerializer.Serialize(e.Event, new JsonSerializerOptions{WriteIndented = true})}"); });
             while(true)
             {
                 Thread.Sleep(TimeSpan.FromSeconds(30));
