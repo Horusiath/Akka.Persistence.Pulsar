@@ -85,7 +85,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
         {
             var queryActive = true;
             SelectedSnapshot shot = null;
-            _client.QueryData(new QueryData($"select * from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".snapshot WHERE  PersistenceId = '{persistenceId}' AND SequenceNr <= bigint '{criteria.MaxSequenceNr}' AND Timestamp <= bigint '{new DateTimeOffset(criteria.MaxTimeStamp).ToUnixTimeMilliseconds()}' ORDER BY SequenceNr DESC LIMIT 1",
+            _client.QueryData(new QueryData($"select Id, PersistenceId, SequenceNr, Timestamp, Snapshot  from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".snapshot WHERE  PersistenceId = '{persistenceId}' AND SequenceNr <= bigint '{criteria.MaxSequenceNr}' AND Timestamp <= bigint '{new DateTimeOffset(criteria.MaxTimeStamp).ToUnixTimeMilliseconds()}' ORDER BY SequenceNr DESC LIMIT 1",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
@@ -122,17 +122,23 @@ namespace Akka.Persistence.Pulsar.Snapshot
             var snapshotEntry = ToSnapshotEntry(metadata, snapshot);
             _client.Send(new Send(snapshotEntry, topic, ImmutableDictionary<string, object>.Empty), producer);
         }
+
         private void CreateSnapshotProducer(string persistenceid)
         {
             var topic = $"{_settings.TopicPrefix.TrimEnd('/')}/snapshot".ToLower();
-            var producerConfig = new ProducerConfigBuilder()
-                .ProducerName($"snapshot-{persistenceid}")
-                .Topic(topic)
-                .Schema(_snapshotEntrySchema)
-                .SendTimeout(10000)
-                .EventListener(_producerListener)
-                .ProducerConfigurationData;
-            _client.CreateProducer(new CreateProducer(_snapshotEntrySchema, producerConfig));
+            var p = _producers.FirstOrDefault(x => x.Key == topic && x.Value.ContainsKey($"snapshot-{persistenceid}")).Value?.Values.FirstOrDefault();
+            if (p == null)
+            {
+                var producerConfig = new ProducerConfigBuilder()
+                    .ProducerName($"snapshot-{persistenceid}")
+                    .Topic(topic)
+                    .Schema(_snapshotEntrySchema)
+                    .SendTimeout(10000)
+                    .EventListener(_producerListener)
+                    .ProducerConfigurationData;
+                _client.CreateProducer(new CreateProducer(_snapshotEntrySchema, producerConfig));
+            }
+
         }
         private (string topic, IActorRef producer) GetProducer(string persistenceid, string type)
         {
@@ -172,15 +178,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
         }
         private SnapshotEntry ToSnapshotEntry(SnapshotMetadata metadata, object snapshot)
         {
-            var snapshotRep = new Serialization.Snapshot(snapshot);
-            var serializer = _serialization.FindSerializerFor(snapshotRep);
-            var binary = serializer.ToBinary(snapshotRep);
-
-            var manifest = "";
-            if (serializer is SerializerWithStringManifest stringManifest)
-                manifest = stringManifest.Manifest(snapshotRep);
-            else
-                manifest = snapshotRep.GetType().TypeQualifiedName();
+            var binary = Serialize(snapshot);
 
             return new SnapshotEntry
             {
@@ -194,9 +192,8 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
         private SelectedSnapshot ToSelectedSnapshot(SnapshotEntry entry)
         {
-            var ser = _serialization.FindSerializerForType(typeof(Serialization.Snapshot));
-            var snapshot = ser.FromBinary<Serialization.Snapshot>(Convert.FromBase64String(entry.Snapshot));
-            return new SelectedSnapshot(new SnapshotMetadata(entry.PersistenceId, entry.SequenceNr), snapshot.Data);
+            var snapshot = Deserialize(Convert.FromBase64String(entry.Snapshot));
+            return new SelectedSnapshot(new SnapshotMetadata(entry.PersistenceId, entry.SequenceNr), snapshot);
 
         }
     }

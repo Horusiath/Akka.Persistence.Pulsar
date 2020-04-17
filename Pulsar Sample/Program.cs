@@ -26,7 +26,10 @@ namespace Pulsar_Sample
             var sampleActor = actorSystem.ActorOf(props, "SampleActor");
             var timeSource = readJournal.EventsByPersistenceId("sampleActor", 0L, long.MaxValue);
             _timeStream = new SourceObservable<EventEnvelope>(timeSource, mat);
-            _timeStream.Subscribe(e=> { Console.WriteLine($"{JsonSerializer.Serialize(e.Event, new JsonSerializerOptions{WriteIndented = true})}"); });
+            _timeStream.Subscribe(e =>
+            {
+                Console.WriteLine($"{JsonSerializer.Serialize(e, new JsonSerializerOptions{WriteIndented = true})}");
+            });
             while(true)
             {
                 Thread.Sleep(TimeSpan.FromSeconds(30));
