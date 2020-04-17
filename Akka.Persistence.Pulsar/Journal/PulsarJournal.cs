@@ -267,7 +267,7 @@ namespace Akka.Persistence.Pulsar.Journal
                 Payload = Convert.ToBase64String(binary),
                 PersistenceId = message.PersistenceId,
                 SequenceNr = message.SequenceNr,
-                Tags = string.Join(",", tagged.Tags == null ? new List<string>() : tagged.Tags.ToList() )
+                Tags = JsonSerializer.Serialize(tagged.Tags == null ? new List<string>() : tagged.Tags.ToList(), new JsonSerializerOptions{WriteIndented = true} )
             };
         }
 
@@ -374,7 +374,7 @@ namespace Akka.Persistence.Pulsar.Journal
             var tag = replay.Tag;
             var queryActive = true;
             var maxOrderingId = 0L;
-            _client.QueryData(new QueryData($"select Id, PersistenceId, SequenceNr, IsDeleted, Payload, Ordering, Tags from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where contains(SELECT split(Tags, ','), '{tag}')  AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY Ordering ASC LIMIT {limitValue}",
+            _client.QueryData(new QueryData($"select Id, PersistenceId, SequenceNr, IsDeleted, Payload, Ordering, Tags from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where json_array_contains(Tags, '{tag}')  AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY Ordering ASC LIMIT {limitValue}",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
