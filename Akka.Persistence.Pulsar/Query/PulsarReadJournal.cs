@@ -41,15 +41,6 @@ namespace Akka.Persistence.Pulsar.Query
         }
 
         /// <summary>
-        /// Returns a default query configuration for akka persistence SQLite-based journals and snapshot stores.
-        /// </summary>
-        /// <returns></returns>
-        public static Config DefaultConfiguration()
-        {
-            return ConfigurationFactory.FromResource<PulsarReadJournal>("Akka.Persistence.Pulsar.reference.conf");
-        }
-
-        /// <summary>
         /// <para>
         /// <see cref="PersistenceIds"/> is used for retrieving all `persistenceIds` of all
         /// persistent actors.
