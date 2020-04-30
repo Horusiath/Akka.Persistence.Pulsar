@@ -19,6 +19,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Akka.Actor;
+using Akka.Configuration;
 using Akka.Event;
 using Akka.Persistence.Journal;
 using Akka.Persistence.Pulsar.Query;
@@ -57,7 +58,7 @@ namespace Akka.Persistence.Pulsar.Journal
 
         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
 
-        public PulsarJournal() : this(PulsarPersistence.Get(Context.System).JournalSettings)
+        public PulsarJournal(Config config) : this(new PulsarSettings(config))
         {
 
         }

@@ -20,6 +20,11 @@ namespace Akka.Persistence.Pulsar
     {
         public PulsarSettings(Config config)
         {
+            if (config is null)
+            {
+                throw new ArgumentNullException(nameof(config), "Pulsar settings HOCON configuration is missing");
+            }
+            
             ServiceUrl = config.GetString("service-url", "pulsar://localhost:6650");
             VerifyCertificateAuthority = config.GetBoolean("verify-certificate-authority", true);
             VerifyCertificateName = config.GetBoolean("verify-cerfiticate-name", false);

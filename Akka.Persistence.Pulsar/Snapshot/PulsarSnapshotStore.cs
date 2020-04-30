@@ -9,6 +9,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Akka.Actor;
+using Akka.Configuration;
 using Akka.Util;
 using SharpPulsar.Akka;
 using SharpPulsar.Akka.Configuration;
@@ -40,7 +41,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
 
-        public PulsarSnapshotStore() : this(PulsarPersistence.Get(Context.System).JournalSettings)
+        public PulsarSnapshotStore(Config config) : this(new PulsarSettings(config))
         {
 
         }
