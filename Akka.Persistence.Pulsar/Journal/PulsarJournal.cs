@@ -110,7 +110,7 @@ namespace Akka.Persistence.Pulsar.Journal
             CreateJournalProducer(persistenceId);
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
             var queryActive = true;
-            _client.PulsarSql(new QueryData($"select Id, PersistenceId, SequenceNr, IsDeleted, Payload, Ordering, Tags from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where PersistenceId = '{persistenceId}' AND SequenceNr BETWEEN bigint '{fromSequenceNr}' AND bigint '{toSequenceNr}' ORDER BY SequenceNr ASC LIMIT {max}",
+            _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, IsDeleted, Payload, Ordering, Tags from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where PersistenceId = '{persistenceId}' AND SequenceNr BETWEEN bigint '{fromSequenceNr}' AND bigint '{toSequenceNr}' ORDER BY SequenceNr ASC LIMIT {max}",
                 d =>
                 {
                     try
@@ -156,7 +156,7 @@ namespace Akka.Persistence.Pulsar.Journal
             NotifyNewPersistenceIdAdded(persistenceId);
             var seq = 0L;
             var queryActive = true;
-            _client.PulsarSql(new QueryData($"select SequenceNr from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal WHERE PersistenceId = '{persistenceId}' ORDER BY SequenceNr DESC LIMIT 1",
+            _client.PulsarSql(new Sql($"select SequenceNr from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal WHERE PersistenceId = '{persistenceId}' ORDER BY SequenceNr DESC LIMIT 1",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
@@ -377,7 +377,7 @@ namespace Akka.Persistence.Pulsar.Journal
             var tag = replay.Tag;
             var queryActive = true;
             var maxOrderingId = 0L;
-            _client.PulsarSql(new QueryData($"select Id, PersistenceId, SequenceNr, IsDeleted, Payload, Ordering, Tags from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where json_array_contains(Tags, '{tag}')  AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY Ordering ASC LIMIT {limitValue}",
+            _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, IsDeleted, Payload, Ordering, Tags from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where json_array_contains(Tags, '{tag}')  AND SequenceNr BETWEEN {fromSequenceNr} AND {toSequenceNr} ORDER BY Ordering ASC LIMIT {limitValue}",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
@@ -437,7 +437,7 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             var list = new List<string>();
             var queryActive = true;
-            _client.PulsarSql(new QueryData($"select DISTINCT PersistenceId from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal",
+            _client.PulsarSql(new Sql($"select DISTINCT PersistenceId from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
