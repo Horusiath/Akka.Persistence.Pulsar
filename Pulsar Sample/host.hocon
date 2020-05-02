@@ -34,7 +34,7 @@
 
 			                    # timestamp provider used for generation of journal entries timestamps
 			                    timestamp-provider = "Akka.Persistence.Sql.Common.Journal.DefaultTimestampProvider, Akka.Persistence.Sql.Common"
-								service-url = "pulsar://52.177.25.186:6650"
+								service-url = "pulsar://52.167.9.246:6650"
   
 							    # Time to wait before retrying an operation or reconnect.
 							    retry-interval = 3s
@@ -46,7 +46,7 @@
 								use-proxy = true
 								auth-class = ""
 								auth-param = ""
-								presto-server = "http://52.167.20.160:8081"
+								presto-server = "http://52.167.83.180:8081"
 								topic-prefix = "persistent://public/default/"
 								pulsar-tenant = "public"
 								pulsar-namespace = "default"
@@ -69,6 +69,24 @@
 
 			                  # should corresponding journal table be initialized automatically
 			                  auto-initialize = off
+							  # timestamp provider used for generation of journal entries timestamps
+			                  timestamp-provider = "Akka.Persistence.Sql.Common.Journal.DefaultTimestampProvider, Akka.Persistence.Sql.Common"
+						      service-url = "pulsar://52.167.9.246:6650"
+  
+							  # Time to wait before retrying an operation or reconnect.
+							  retry-interval = 3s
+  
+							  verity-certificate-authority = true
+  
+							  # Verify certificate name with hostname.
+							  verify-cerfiticate-name = false 
+							  use-proxy = true
+							  auth-class = ""
+							  auth-param = ""
+							  presto-server = "http://52.167.83.180:8081"
+							  topic-prefix = "persistent://public/default/"
+							  pulsar-tenant = "public"
+							  pulsar-namespace = "default"
 						}
 					}
 				
@@ -81,7 +99,7 @@
 					  # query journal will connect to. 
 					  # If undefined (or "") it will connect to the default journal as specified by the
 					  # akka.persistence.journal.plugin property.
-					  write-plugin = ""
+					  write-plugin = "akka.persistence.journal.pulsar"
 				  
 					  # The SQL write journal is notifying the query side as soon as things
 					  # are persisted, but for efficiency reasons the query side retrieves the events 

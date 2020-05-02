@@ -167,7 +167,7 @@ namespace Akka.Persistence.Pulsar.Query
                 case NoOffset _:
                     return EventsByTag(tag, new Sequence(0L));
                 default:
-                    throw new ArgumentException($"SqlReadJournal does not support {offset.GetType().Name} offsets");
+                    throw new ArgumentException($"PulsarReadJournal does not support {offset.GetType().Name} offsets");
             }
         }
 

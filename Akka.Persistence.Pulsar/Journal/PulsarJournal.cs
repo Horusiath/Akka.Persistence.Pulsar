@@ -108,44 +108,35 @@ namespace Akka.Persistence.Pulsar.Journal
             NotifyNewPersistenceIdAdded(persistenceId);
             //RETENTION POLICY MUST BE SENT AT THE NAMESPACE ELSE TOPIC IS DELETED
             CreateJournalProducer(persistenceId);
+            bool queryRunning = true;
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
-            var queryActive = true;
             _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, IsDeleted, Payload, Ordering, Tags from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where PersistenceId = '{persistenceId}' AND SequenceNr BETWEEN bigint '{fromSequenceNr}' AND bigint '{toSequenceNr}' ORDER BY SequenceNr ASC LIMIT {max}",
                 d =>
                 {
-                    try
+                    var replay = recoveryCallback;
+                    if (d.ContainsKey("Finished"))
                     {
-                        if (d.ContainsKey("Finished"))
-                        {
-                            queryActive = false;
-                            return;
-                        }
-                        
-                        var m = JsonSerializer.Deserialize<JournalEntry>(d["Message"]);
-                        if (!string.IsNullOrWhiteSpace(m.Payload))
-                        {
-                            var payload = Convert.FromBase64String(m.Payload);
-                            recoveryCallback(Deserialize(payload));
-                        }
+                        queryRunning = false;
+                        return;
                     }
-                    catch (Exception e)
-                    {
-                        context.System.Log.Error(e.ToString());
-                        queryActive = false;
-                    }
+                    var m = JsonSerializer.Deserialize<JournalEntry>(d["Message"]);
+                    var payload = Convert.FromBase64String(m.Payload);
+                    replay(Deserialize(payload));
                 }, e =>
                 {
-                    context.System.Log.Error(e.ToString());
+                    var contxt = context;
+                    queryRunning = false;
+                    contxt.System.Log.Error(e.ToString());
                 }, _settings.PrestoServer, l =>
                 {
                     _log.Info(l);
                 }, true));
-            while (queryActive)
+            while (queryRunning)
             {
-                await Task.Delay(500);
+                await Task.Delay(1000);
             }
-            
         }
+
         /// <summary>
         /// This method is called at the very beginning of the replay procedure to define a possible boundary of replay:
         /// In akka persistence every persistent actor starts from the replay phase, where it replays state from all of
@@ -387,17 +378,14 @@ namespace Akka.Persistence.Pulsar.Journal
                     }
                     
                     var m = JsonSerializer.Deserialize<JournalEntry>(d["Message"]);
-                    if (!string.IsNullOrWhiteSpace(m.Payload))
-                    {
-                        var ordering = m.Ordering;
-                        var payload = Convert.FromBase64String(m.Payload);
-                        maxOrderingId = ordering;
-                        var persistent = Deserialize(payload);
-                        foreach (var adapted in AdaptFromJournal(persistent))
-                            replay.ReplyTo.Tell(new ReplayedTaggedMessage(adapted, tag, ordering),
-                                ActorRefs.NoSender);
-                    }
-                    
+                    var ordering = m.Ordering;
+                    var payload = Convert.FromBase64String(m.Payload);
+                    maxOrderingId = ordering;
+                    var persistent = Deserialize(payload);
+                    foreach (var adapted in AdaptFromJournal(persistent))
+                        replay.ReplyTo.Tell(new ReplayedTaggedMessage(adapted, tag, ordering),
+                            ActorRefs.NoSender);
+
                 }, e =>
                 {
                     _log.Error(e.ToString());
