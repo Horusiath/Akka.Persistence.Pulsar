@@ -14,13 +14,13 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.Configuration;
 using Akka.Event;
+using Akka.Pattern;
 using Akka.Persistence.Journal;
 using Akka.Persistence.Pulsar.Query;
 using Akka.Serialization;
@@ -29,7 +29,6 @@ using SharpPulsar.Akka.Configuration;
 using SharpPulsar.Akka.InternalCommands;
 using SharpPulsar.Akka.InternalCommands.Producer;
 using SharpPulsar.Handlers;
-using SharpPulsar.Impl;
 using SharpPulsar.Impl.Schema;
 
 namespace Akka.Persistence.Pulsar.Journal
@@ -108,9 +107,9 @@ namespace Akka.Persistence.Pulsar.Journal
             NotifyNewPersistenceIdAdded(persistenceId);
             //RETENTION POLICY MUST BE SENT AT THE NAMESPACE ELSE TOPIC IS DELETED
             CreateJournalProducer(persistenceId);
-            bool queryRunning = true;
+            var queryRunning = true;
             _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
-            _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, IsDeleted, Payload, Ordering, Tags from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where PersistenceId = '{persistenceId}' AND SequenceNr BETWEEN bigint '{fromSequenceNr}' AND bigint '{toSequenceNr}' ORDER BY SequenceNr ASC LIMIT {max}",
+            _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, IsDeleted, Payload, Ordering, Tags from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".journal where PersistenceId = '{persistenceId}' AND SequenceNr BETWEEN bigint '{fromSequenceNr}' AND bigint '{toSequenceNr}' ORDER BY Ordering ASC LIMIT {max}",
                 d =>
                 {
                     var replay = recoveryCallback;
@@ -170,7 +169,10 @@ namespace Akka.Persistence.Pulsar.Journal
             {
                 await Task.Delay(100);
             }
-
+            if (seq < fromSequenceNr)
+            {
+                throw new IllegalStateException($"Invalid highest offset: {seq} < {fromSequenceNr}");
+            }
             return seq;
         }
         /// <summary>

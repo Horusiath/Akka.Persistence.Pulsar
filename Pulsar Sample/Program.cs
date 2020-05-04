@@ -32,7 +32,7 @@ namespace Pulsar_Sample
             });
             while(true)
             {
-                Thread.Sleep(TimeSpan.FromSeconds(5));
+                Thread.Sleep(TimeSpan.FromSeconds(1));
                 sampleActor.Tell(new ReadSystemCurrentTimeUtc());
                 
                 Console.WriteLine("Tell Actor");

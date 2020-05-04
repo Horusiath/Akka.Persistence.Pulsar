@@ -16,6 +16,7 @@ using Xunit.Abstractions;
 
 namespace Akka.Persistence.Pulsar.Tests
 {
+    [Collection("PlusarJournalSpec")]
     public class PlusarJournalSpec : JournalSpec
     {
         private static readonly Config SpecConfig = ConfigurationFactory.ParseString(@"
