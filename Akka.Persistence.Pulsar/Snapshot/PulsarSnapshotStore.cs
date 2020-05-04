@@ -87,7 +87,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
             
             var queryActive = true;
             SelectedSnapshot shot = null;
-            _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, Timestamp, Snapshot  from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".snapshot WHERE  PersistenceId = '{persistenceId}' AND SequenceNr <= bigint '{criteria.MaxSequenceNr}' AND Timestamp <= bigint '{new DateTimeOffset(criteria.MaxTimeStamp).ToUnixTimeMilliseconds()}' ORDER BY SequenceNr DESC LIMIT 1",
+            _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, Timestamp, Snapshot  from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".snapshot WHERE  PersistenceId = '{persistenceId}' AND SequenceNr <= bigint '{criteria.MaxSequenceNr}' AND Timestamp <= bigint '{new DateTimeOffset(criteria.MaxTimeStamp).ToUnixTimeMilliseconds()}' ORDER BY __publish_time__  DESC LIMIT 1",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
