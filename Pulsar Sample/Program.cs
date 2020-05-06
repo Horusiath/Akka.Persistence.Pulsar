@@ -46,13 +46,13 @@ namespace Sample
                 Console.WriteLine($"PersistenceId '{e}' added");
                 Console.ResetColor();
             });
-            /* var tagSource = readJournal.EventsByTag("utc", Offset.Sequence(0L));
+            var tagSource = readJournal.EventsByTag("utc", Offset.Sequence(0L));
              //var tagSource = readJournal.CurrentEventsByTag("utc", new Sequence(0L));
              _tagStream = new SourceObservable<EventEnvelope>(tagSource, mat);
              _tagStream.Subscribe(e =>
              {
                  Console.WriteLine($"{JsonSerializer.Serialize(e, new JsonSerializerOptions{WriteIndented = true})}");
-             });*/
+             });
             while (true)
             {
                 Thread.Sleep(TimeSpan.FromSeconds(1));
