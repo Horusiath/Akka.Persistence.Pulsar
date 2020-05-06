@@ -21,7 +21,7 @@ namespace Sample.Actors
                 {
                     case ReadSystemCurrentTimeUtc time:
                         {
-                            var readTimeEvent = new Event.ReadSystemCurrentTimeUtc(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                            var readTimeEvent = new Event.SystemCurrentTimeUtcRead(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
                             Persist(readTimeEvent, @event => {
                                 Console.WriteLine(@event.CurrentTime);
                             });
@@ -38,7 +38,7 @@ namespace Sample.Actors
                 {
                     case ReadSystemCurrentTimeUtc time:
                         {
-                            var readTimeEvent = new Event.ReadSystemCurrentTimeUtc(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                            var readTimeEvent = new Event.SystemCurrentTimeUtcRead(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
                             Persist(readTimeEvent, @event => {
                                 Console.WriteLine(@event.CurrentTime);
                             });

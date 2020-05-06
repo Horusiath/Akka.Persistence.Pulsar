@@ -15,7 +15,7 @@ namespace Sample.Actors
         {
             switch (evt)
             {
-                case ReadSystemCurrentTimeUtc utc:
+                case SystemCurrentTimeUtcRead utc:
                     return new Tagged(evt, ImmutableHashSet<string>.Empty.Add("utc"));
                 default: return evt;
             }

@@ -2,11 +2,11 @@
 
 namespace Sample.Event
 {
-    public class ReadSystemCurrentTimeUtc : IEvent
+    public class SystemCurrentTimeUtcRead : IEvent
     {
         public long EventTime => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         public readonly long CurrentTime;
-        public ReadSystemCurrentTimeUtc(long time)
+        public SystemCurrentTimeUtcRead(long time)
         {
             CurrentTime = time;
         }

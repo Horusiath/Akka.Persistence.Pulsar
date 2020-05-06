@@ -500,7 +500,7 @@ namespace Akka.Persistence.Pulsar.Journal
             tags += $"){Environment.NewLine}";
             tags += "select MAX(SequenceNr) AS SequenceNr from tags";
             var queryActive = true;
-            var maxsequenceNr = 0L;
+            var sequenceNr = 0L;
             _client.PulsarSql(new Sql(tags,
                 d =>
                 {
@@ -511,7 +511,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     }
 
                     var m = JsonSerializer.Deserialize<JournalEntry>(d["Message"]);
-                    maxsequenceNr = m.SequenceNr;
+                    sequenceNr = m.SequenceNr;
                 }, e =>
                 {
                     _log.Error(e.ToString());
@@ -524,7 +524,7 @@ namespace Akka.Persistence.Pulsar.Journal
             {
                 Thread.Sleep(100);
             }
-            return maxsequenceNr;
+            return sequenceNr;
         }
         private void AddAllPersistenceIdSubscriber(IActorRef subscriber)
         {
