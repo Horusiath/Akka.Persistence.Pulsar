@@ -1,9 +1,9 @@
-﻿using Akka;
+﻿using System;
+using Akka;
 using Akka.Streams;
 using Akka.Streams.Dsl;
-using System;
 
-namespace Pulsar_Sample.Observer
+namespace Sample.Observer
 {
     
     public class SourceObservable<T> : IObservable<T>

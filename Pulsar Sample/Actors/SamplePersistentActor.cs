@@ -1,14 +1,15 @@
-﻿using Akka.Actor;
+﻿using System;
+using Akka.Actor;
 using Akka.Persistence;
-using Pulsar_Sample.Command;
-using System;
+using Sample.Command;
 
-namespace Pulsar_Sample.Actors
+namespace Sample.Actors
 {
     public class SamplePersistentActor : ReceivePersistentActor
     {
         private SampleActorState _state;
-        public override string PersistenceId => "sampleActor";
+        public override string PersistenceId { get; }
+
         public SamplePersistentActor()
         {
             _state = new SampleActorState();
@@ -53,7 +54,17 @@ namespace Pulsar_Sample.Actors
                     Console.WriteLine($"Snapshot Offered: {_state.HandledCount}");
                 }                    
             });
+
+            PersistenceId = Context.Self.Path.Name;
         }
+
+        protected override void Unhandled(object message)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.WriteLine($"unhandled => {message.GetType().FullName}");
+            Console.ResetColor();
+        }
+
         public static Props Prop()
         {
             return Props.Create(() => new SamplePersistentActor());

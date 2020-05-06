@@ -50,6 +50,12 @@
 								topic-prefix = "persistent://public/default/"
 								pulsar-tenant = "public"
 								pulsar-namespace = "default"
+								event-adapters = {
+									tagger = "Sample.Actors.EventTagger, Sample"
+								}
+								event-adapter-bindings = {
+									"Sample.Event.IEvent, Sample" = tagger
+								}
 		                }
 					}
 

@@ -1,10 +1,8 @@
-﻿using Reactive.Streams;
-using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using System;
 using System.Threading.Tasks;
+using Reactive.Streams;
 
-namespace Pulsar_Sample.Observer
+namespace Sample.Observer
 {
     // TODO Double check the reactive streams spec.
     public class ObserverSubscriber<T> : ISubscriber<T>, IDisposable

@@ -7,7 +7,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Akka.Persistence.Pulsar", "
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Akka.Persistence.Pulsar.Tests", "Akka.Persistence.Pulsar.Tests\Akka.Persistence.Pulsar.Tests.csproj", "{43F06A8C-762B-4393-8AC1-06229C54D858}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Pulsar Sample", "Pulsar Sample\Pulsar Sample.csproj", "{823B3517-BBF8-4F9F-B256-407F9286349E}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Sample", "Pulsar Sample\Sample.csproj", "{823B3517-BBF8-4F9F-B256-407F9286349E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

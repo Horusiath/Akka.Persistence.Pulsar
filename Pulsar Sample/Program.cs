@@ -1,41 +1,46 @@
-﻿using Akka.Actor;
+﻿using System;
+using System.IO;
+using System.Text.Json;
+using System.Threading;
+using Akka.Actor;
 using Akka.Configuration;
 using Akka.Persistence.Pulsar.Query;
 using Akka.Persistence.Query;
 using Akka.Streams;
-using Pulsar_Sample.Actors;
-using Pulsar_Sample.Command;
-using Pulsar_Sample.Observer;
-using System;
-using System.IO;
-using System.Text.Json;
-using System.Threading;
+using Sample.Observer;
 
-namespace Pulsar_Sample
+namespace Sample
 {
     class Program
     {
-        private static IObservable<EventEnvelope> _timeStream;
+        private static IObservable<EventEnvelope> _persistenceStream;
+        private static IObservable<EventEnvelope> _tagStream;
         static void Main(string[] args)
         {
             var config = File.ReadAllText("host.hocon");
             var actorSystem = ActorSystem.Create("SampleSystem", ConfigurationFactory.ParseString(config));
             var mat = ActorMaterializer.Create(actorSystem);
             var readJournal = PersistenceQuery.Get(actorSystem).ReadJournalFor<PulsarReadJournal>("akka.persistence.query.journal.pulsar");
-            var props = SamplePersistentActor.Prop();
-            var sampleActor = actorSystem.ActorOf(props, "SampleActor");
-            var timeSource = readJournal.EventsByPersistenceId("sampleActor", 0L, long.MaxValue);
-            _timeStream = new SourceObservable<EventEnvelope>(timeSource, mat);
-            _timeStream.Subscribe(e =>
+            //var sampleActor = actorSystem.ActorOf(SamplePersistentActor.Prop(), "utcreader");
+            /*var persistenceSource = readJournal.EventsByPersistenceId("utcreader", 0L, long.MaxValue);
+            _persistenceStream = new SourceObservable<EventEnvelope>(persistenceSource, mat);
+            _persistenceStream.Subscribe(e =>
+            {
+                Console.WriteLine($"{JsonSerializer.Serialize(e, new JsonSerializerOptions { WriteIndented = true })}");
+            });*/
+            var tagSource = readJournal.EventsByTag("utc", Offset.Sequence(0L));
+            //var tagSource = readJournal.CurrentEventsByTag("utc", new Sequence(0L));
+            _tagStream = new SourceObservable<EventEnvelope>(tagSource, mat);
+            _tagStream.Subscribe(e =>
             {
                 Console.WriteLine($"{JsonSerializer.Serialize(e, new JsonSerializerOptions{WriteIndented = true})}");
             });
             while(true)
             {
                 Thread.Sleep(TimeSpan.FromSeconds(1));
-                sampleActor.Tell(new ReadSystemCurrentTimeUtc());
+                //sampleActor.Tell(new ReadSystemCurrentTimeUtc());
                 
-                Console.WriteLine("Tell Actor");
+                //Console.WriteLine("Tell Actor");
             }
         }
     }

@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Pulsar_Sample.Event
+namespace Sample.Event
 {
     public class ReadSystemCurrentTimeUtc : IEvent
     {

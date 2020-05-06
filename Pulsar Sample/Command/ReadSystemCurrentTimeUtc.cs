@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace Pulsar_Sample.Command
+﻿namespace Sample.Command
 {
     public class ReadSystemCurrentTimeUtc: ICommand
     {
