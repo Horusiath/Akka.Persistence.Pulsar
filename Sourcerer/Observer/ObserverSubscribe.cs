@@ -2,7 +2,7 @@
 using System.Threading.Tasks;
 using Reactive.Streams;
 
-namespace Sample.Observer
+namespace Sourcerer.Observer
 {
     // TODO Double check the reactive streams spec.
     public class ObserverSubscriber<T> : ISubscriber<T>, IDisposable

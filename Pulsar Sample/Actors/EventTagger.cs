@@ -2,7 +2,7 @@
 using Akka.Persistence.Journal;
 using Sample.Event;
 
-namespace Sample.Actors
+namespace Producer.Actors
 {
     public sealed class EventTagger: IWriteEventAdapter
     {

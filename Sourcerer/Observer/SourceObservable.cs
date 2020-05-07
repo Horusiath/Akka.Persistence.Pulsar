@@ -3,7 +3,7 @@ using Akka;
 using Akka.Streams;
 using Akka.Streams.Dsl;
 
-namespace Sample.Observer
+namespace Sourcerer.Observer
 {
     
     public class SourceObservable<T> : IObservable<T>

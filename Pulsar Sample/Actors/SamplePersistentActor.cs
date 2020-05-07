@@ -2,8 +2,9 @@
 using Akka.Actor;
 using Akka.Persistence;
 using Sample.Command;
+using Sample.Event;
 
-namespace Sample.Actors
+namespace Producer.Actors
 {
     public class SamplePersistentActor : ReceivePersistentActor
     {
@@ -13,21 +14,14 @@ namespace Sample.Actors
         public SamplePersistentActor()
         {
             _state = new SampleActorState();
-            Command<ICommand>(c => 
+            Command<ReadSystemCurrentTimeUtc>(c => 
             {
                 Console.WriteLine("Command Received");
                 _state.HandledCount++;
-                switch (c)
-                {
-                    case ReadSystemCurrentTimeUtc time:
-                        {
-                            var readTimeEvent = new Event.SystemCurrentTimeUtcRead(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                            Persist(readTimeEvent, @event => {
-                                Console.WriteLine(@event.CurrentTime);
-                            });
-                        }
-                        break;
-                }                
+                var readTimeEvent = new SystemCurrentTimeUtcRead(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                Persist(readTimeEvent, @event => {
+                    Console.WriteLine(@event.CurrentTime);
+                });
             });
             
             Recover<ICommand>(c => 
@@ -38,7 +32,7 @@ namespace Sample.Actors
                 {
                     case ReadSystemCurrentTimeUtc time:
                         {
-                            var readTimeEvent = new Event.SystemCurrentTimeUtcRead(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                            var readTimeEvent = new SystemCurrentTimeUtcRead(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
                             Persist(readTimeEvent, @event => {
                                 Console.WriteLine(@event.CurrentTime);
                             });
@@ -54,9 +48,29 @@ namespace Sample.Actors
                     Console.WriteLine($"Snapshot Offered: {_state.HandledCount}");
                 }                    
             });
-
+            CommandAny(o =>
+            {
+                Console.ForegroundColor = ConsoleColor.DarkYellow;
+                Console.WriteLine(o.GetType().FullName);
+                Console.ResetColor();
+            });
             PersistenceId = Context.Self.Path.Name;
+            //
         }
+
+        protected override bool Receive(object message)
+        {
+            Console.WriteLine("Received");
+            return base.Receive(message);
+        }
+
+        protected override bool AroundReceive(Receive receive, object message)
+        {
+            Console.WriteLine($"AroundReceive =>{message.GetType().FullName}");
+            return base.AroundReceive(receive, message);
+        }
+
+        public override Recovery Recovery => Recovery.None;
 
         protected override void Unhandled(object message)
         {
