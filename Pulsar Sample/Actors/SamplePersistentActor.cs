@@ -10,6 +10,7 @@ namespace Producer.Actors
     {
         private SampleActorState _state;
         public override string PersistenceId { get; }
+        private int _snapCount = 0;
 
         public SamplePersistentActor()
         {
@@ -19,8 +20,14 @@ namespace Producer.Actors
                 Console.WriteLine("Command Received");
                 _state.HandledCount++;
                 var readTimeEvent = new SystemCurrentTimeUtcRead(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                Persist(readTimeEvent, @event => {
-                    Console.WriteLine(@event.CurrentTime);
+                Persist(readTimeEvent, @event =>
+                {
+                    _snapCount++;
+                    if (_snapCount >= 5)
+                    {
+                        SaveSnapshot(_state);
+                        _snapCount = 0;
+                    }
                 });
             });
             
@@ -36,6 +43,18 @@ namespace Producer.Actors
                             Persist(readTimeEvent, @event => {
                                 Console.WriteLine(@event.CurrentTime);
                             });
+                        }
+                        break;
+                }
+            });
+            Recover<IEvent>(c => 
+            {
+                Console.WriteLine("Recovered Event!!");
+                switch (c)
+                {
+                    case SystemCurrentTimeUtcRead time:
+                        {
+                            _state.HandledCount++;
                         }
                         break;
                 }
@@ -69,8 +88,6 @@ namespace Producer.Actors
             Console.WriteLine($"AroundReceive =>{message.GetType().FullName}");
             return base.AroundReceive(receive, message);
         }
-
-        public override Recovery Recovery => Recovery.None;
 
         protected override void Unhandled(object message)
         {

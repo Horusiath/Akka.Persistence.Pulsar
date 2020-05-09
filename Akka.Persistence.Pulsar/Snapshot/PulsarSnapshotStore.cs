@@ -87,7 +87,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
             
             var queryActive = true;
             SelectedSnapshot shot = null;
-            _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, Timestamp, Snapshot  from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".\"snapshot-{persistenceId}\" WHERE  SequenceNr <= bigint '{criteria.MaxSequenceNr}' AND Timestamp <= bigint '{new DateTimeOffset(criteria.MaxTimeStamp).ToUnixTimeMilliseconds()}' ORDER BY __publish_time__  DESC LIMIT 1",
+            _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, Timestamp, Snapshot  from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".\"snapshot-{persistenceId}\" ORDER BY __publish_time__  DESC LIMIT 1",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
@@ -127,7 +127,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
         private void CreateSnapshotProducer(string persistenceid)
         {
-            var topic = $"{_settings.TopicPrefix.TrimEnd('/')}/snapshot".ToLower();
+            var topic = $"{_settings.TopicPrefix.TrimEnd('/')}/snapshot-{persistenceid}".ToLower();
             var p = _producers.FirstOrDefault(x => x.Key == topic && x.Value.ContainsKey($"snapshot-{persistenceid}")).Value?.Values.FirstOrDefault();
             if (p == null)
             {
@@ -144,7 +144,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
         }
         private (string topic, IActorRef producer) GetProducer(string persistenceid, string type)
         {
-            var topic = $"{_settings.TopicPrefix.TrimEnd('/')}/{type}".ToLower();
+            var topic = $"{_settings.TopicPrefix.TrimEnd('/')}/{type}-{persistenceid}".ToLower();
             if (!_pendingTopicProducer.Contains(topic))
             {
                 var p = _producers.FirstOrDefault(x => x.Key == topic && x.Value.ContainsKey($"{type.ToLower()}-{persistenceid}")).Value?.Values.FirstOrDefault();

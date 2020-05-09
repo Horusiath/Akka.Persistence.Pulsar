@@ -55,9 +55,8 @@ namespace Akka.Persistence.Pulsar.Journal
 
         public PulsarJournal(PulsarSettings settings)
         {
-
             _serializer = Context.System.Serialization.FindSerializerForType(PersistentRepresentationType);
-            _journalExecutor = new PulsarJournalExecutor(settings, Context.GetLogger(), Context.System.Serialization.FindSerializerForType(PersistentRepresentationType));
+            _journalExecutor = new PulsarJournalExecutor(settings, Context.GetLogger(), _serializer);
         }
 
         /// <summary>
