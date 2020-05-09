@@ -35,7 +35,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
         private List<string> _pendingTopicProducer = new List<string>();
         private static readonly Type SnapshotType = typeof(Serialization.Snapshot);
         private readonly Serializer _serializer;
-        private JsonSchema _snapshotEntrySchema; 
+        private AvroSchema _snapshotEntrySchema; 
         private readonly Akka.Serialization.Serialization _serialization;
 
 
@@ -48,7 +48,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
         public PulsarSnapshotStore(PulsarSettings settings)
         {
-            _snapshotEntrySchema = JsonSchema.Of(typeof(SnapshotEntry));
+            _snapshotEntrySchema = AvroSchema.Of(typeof(SnapshotEntry));
             _producerListener = new DefaultProducerListener(o =>
             {
                 _log.Info(o.ToString());
@@ -138,7 +138,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
                     .SendTimeout(10000)
                     .EventListener(_producerListener)
                     .ProducerConfigurationData;
-                _client.CreateProducer(new CreateProducer(_snapshotEntrySchema, producerConfig));
+                _client.PulsarProducer(new CreateProducer(_snapshotEntrySchema, producerConfig));
             }
 
         }

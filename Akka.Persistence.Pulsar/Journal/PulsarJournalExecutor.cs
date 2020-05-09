@@ -32,8 +32,8 @@ namespace Akka.Persistence.Pulsar.Journal
 
         private (string topic, IActorRef producer) _persistenceId;
 
-        private readonly JsonSchema _journalEntrySchema;
-        private readonly JsonSchema _persistentEntrySchema;
+        private readonly AvroSchema _journalEntrySchema;
+        private readonly AvroSchema _persistentEntrySchema;
 
         private readonly HashSet<string> _allPersistenceIds = new HashSet<string>();
 
@@ -42,8 +42,8 @@ namespace Akka.Persistence.Pulsar.Journal
             Settings = settings;
             _log = log;
             _serializer = serializer; 
-            _journalEntrySchema = JsonSchema.Of(typeof(JournalEntry));
-            _persistentEntrySchema = JsonSchema.Of(typeof(PersistentIdEntry));
+            _journalEntrySchema = AvroSchema.Of(typeof(JournalEntry), new Dictionary<string, string>());
+            _persistentEntrySchema = AvroSchema.Of(typeof(PersistentIdEntry));
             _producerListener = new DefaultProducerListener(o =>
             {
                 _log.Info(o.ToString());
@@ -151,7 +151,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     .SendTimeout(10000)
                     .EventListener(_producerListener)
                     .ProducerConfigurationData;
-                Client.CreateProducer(new CreateProducer(_journalEntrySchema, producerConfig));
+                Client.PulsarProducer(new CreateProducer(_journalEntrySchema, producerConfig));
 
             }
         }
@@ -168,7 +168,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     .SendTimeout(10000)
                     .EventListener(_producerListener)
                     .ProducerConfigurationData;
-                Client.CreateProducer(new CreateProducer(_persistentEntrySchema, producerConfig));
+                Client.PulsarProducer(new CreateProducer(_persistentEntrySchema, producerConfig));
 
             }
         }
