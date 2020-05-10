@@ -14,6 +14,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.Configuration;
@@ -45,6 +46,7 @@ namespace Akka.Persistence.Pulsar.Journal
         public IEnumerable<string> AllPersistenceIds => _allPersistenceIds;
         private bool _firstRun = true;
         private readonly PulsarJournalExecutor _journalExecutor;
+        private readonly CancellationTokenSource _pendingRequestsCancellation;
 
         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
 
@@ -55,8 +57,9 @@ namespace Akka.Persistence.Pulsar.Journal
 
         public PulsarJournal(PulsarSettings settings)
         {
+            _pendingRequestsCancellation = new CancellationTokenSource();
             _serializer = Context.System.Serialization.FindSerializerForType(PersistentRepresentationType);
-            _journalExecutor = new PulsarJournalExecutor(settings, Context.GetLogger(), _serializer);
+            _journalExecutor = new PulsarJournalExecutor(settings, Context.GetLogger(), _serializer, _pendingRequestsCancellation);
         }
 
         /// <summary>
@@ -122,11 +125,13 @@ namespace Akka.Persistence.Pulsar.Journal
                 }
 
                 var (topic, producer) = _journalExecutor.GetProducer(message.PersistenceId, "Journal");
-                while (producer == null)
-                {
-                    (topic, producer) = _journalExecutor.GetProducer(message.PersistenceId, "Journal");
-                    await Task.Delay(100);
-                }
+                using (var tokenSource =
+                    CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token))
+                    while (producer == null && !tokenSource.IsCancellationRequested)
+                    {
+                        (topic, producer) = _journalExecutor.GetProducer(message.PersistenceId, "Journal");
+                        await Task.Delay(100, tokenSource.Token);
+                    }
                 var journalEntries = persistentMessages.Select(ToJournalEntry).Select(x => new Send(x, topic, ImmutableDictionary<string, object>.Empty)).ToList();
                 _journalExecutor.Client.BulkSend(new BulkSend(journalEntries, topic), producer);
                 if (HasPersistenceIdSubscribers)
@@ -184,10 +189,12 @@ namespace Akka.Persistence.Pulsar.Journal
                 Tags = JsonSerializer.Serialize(tagged.Tags == null ? new List<string>() : tagged.Tags.ToList(), new JsonSerializerOptions{WriteIndented = true} )
             };
         }
-
         protected override void PostStop()
         {
             base.PostStop();
+
+            // stop all operations executed in the background
+            _pendingRequestsCancellation.Cancel();
             _journalExecutor.Client.DisposeAsync().GetAwaiter();
         }
         
@@ -241,14 +248,15 @@ namespace Akka.Persistence.Pulsar.Journal
              * of data returned by a query. This was at the root of https://github.com/akkadotnet/Akka.Persistence.MongoDB/issues/80
              */
             // Limit allows only integer
-
+            using var tokenSource =
+                CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token);
             return await Task.Run(async() => {
                 var ids = _allPersistenceIds.ToList();
                 ids.ForEach(x => x.Replace("-", "_"));
                 if (!ids.Any())
                 {
                     //let us wait 5 seconds
-                    await Task.Delay(5000);
+                    await Task.Delay(5000, tokenSource.Token);
                     ids = _allPersistenceIds.ToList();
                     ids.ForEach(x => x.Replace("-", "_"));
                     if (!ids.Any())
@@ -284,13 +292,14 @@ namespace Akka.Persistence.Pulsar.Journal
                     {
                         _log.Info(l);
                     }, true));
-                while (queryActive)
+                
+                while (queryActive && !tokenSource.IsCancellationRequested)
                 {
-                    await Task.Delay(100);
+                    await Task.Delay(100, tokenSource.Token);
                 }
 
                 return _journalExecutor.GetMaxOrderingId(replay, ids);
-            });
+            }, tokenSource.Token);
         }
 
         

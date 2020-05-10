@@ -21,7 +21,7 @@ namespace Producer
                 Thread.Sleep(TimeSpan.FromSeconds(1));
                 sampleActor.Tell(new ReadSystemCurrentTimeUtc());
                 
-                Console.WriteLine("Tell Actor");
+               // Console.WriteLine("Tell Actor");
             }
         }
     }

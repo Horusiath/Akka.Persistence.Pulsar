@@ -34,11 +34,13 @@ namespace Akka.Persistence.Pulsar.Journal
 
         private readonly AvroSchema _journalEntrySchema;
         private readonly AvroSchema _persistentEntrySchema;
+        private readonly CancellationTokenSource _pendingRequestsCancellation;
 
         private readonly HashSet<string> _allPersistenceIds = new HashSet<string>();
 
-        public PulsarJournalExecutor(PulsarSettings settings, ILoggingAdapter log, Serializer serializer)
+        public PulsarJournalExecutor(PulsarSettings settings, ILoggingAdapter log, Serializer serializer, CancellationTokenSource cancellation)
         {
+            _pendingRequestsCancellation = cancellation;
             Settings = settings;
             _log = log;
             _serializer = serializer; 
@@ -100,9 +102,11 @@ namespace Akka.Persistence.Pulsar.Journal
                 {
                     _log.Info(l);
                 }, false));
-            while (queryRunning)
+            using var tokenSource =
+                CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token);
+            while (queryRunning && !tokenSource.IsCancellationRequested)
             {
-                await Task.Delay(100);
+                await Task.Delay(100, tokenSource.Token);
             }
         }
         public async Task<long> ReadHighestSequenceNr(string persistenceId, long fromSequenceNr)
@@ -128,10 +132,12 @@ namespace Akka.Persistence.Pulsar.Journal
                 {
                     _log.Info(l);
                 }, true));
-            while (queryActive)
-            {
-                await Task.Delay(100);
-            }
+            using (var tokenSource =
+                CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token))
+                while (queryActive && !tokenSource.IsCancellationRequested)
+                {
+                    await Task.Delay(100, tokenSource.Token);
+                }
             if (seq < fromSequenceNr)
             {
                 throw new IllegalStateException($"Invalid highest offset: {seq} < {fromSequenceNr}");
@@ -278,10 +284,12 @@ namespace Akka.Persistence.Pulsar.Journal
                 {
                     _log.Info(l);
                 }, true));
-            while (queryActive)
-            {
-                Thread.Sleep(100);
-            }
+            using (var tokenSource =
+                CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token))
+                while (queryActive && !tokenSource.IsCancellationRequested)
+                {
+                    Thread.Sleep(100);
+                }
             return sequenceNr;
         }
     }

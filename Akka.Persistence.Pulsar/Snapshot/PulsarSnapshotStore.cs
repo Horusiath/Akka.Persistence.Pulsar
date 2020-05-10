@@ -7,10 +7,12 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.Configuration;
 using Akka.Util;
+using IdentityModel;
 using SharpPulsar.Akka;
 using SharpPulsar.Akka.Configuration;
 using SharpPulsar.Akka.InternalCommands;
@@ -27,7 +29,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
     
     public class PulsarSnapshotStore : SnapshotStore
     {
-
+        private readonly CancellationTokenSource _pendingRequestsCancellation;
         private readonly PulsarSettings _settings;
         private readonly ILoggingAdapter _log = Context.GetLogger();
         private readonly PulsarSystem _client; public static readonly ConcurrentDictionary<string, Dictionary<string, IActorRef>> _producers = new ConcurrentDictionary<string, Dictionary<string, IActorRef>>();
@@ -48,6 +50,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
         public PulsarSnapshotStore(PulsarSettings settings)
         {
+            _pendingRequestsCancellation = new CancellationTokenSource();
             _snapshotEntrySchema = AvroSchema.Of(typeof(SnapshotEntry));
             _producerListener = new DefaultProducerListener(o =>
             {
@@ -87,7 +90,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
             
             var queryActive = true;
             SelectedSnapshot shot = null;
-            _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, Timestamp, Snapshot  from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".\"snapshot-{persistenceId}\" ORDER BY __publish_time__  DESC LIMIT 1",
+            _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, Timestamp, Snapshot  from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".\"snapshot-{persistenceId}\" WHERE SequenceNr <= {criteria.MaxSequenceNr} AND Timestamp <= {criteria.MaxTimeStamp.ToEpochTime()} ORDER BY SequenceNr DESC, __publish_time__ DESC LIMIT 1",
                 d =>
                 {
                     if (d.ContainsKey("Finished"))
@@ -105,10 +108,12 @@ namespace Akka.Persistence.Pulsar.Snapshot
                 {
                     _log.Info(l);
                 },true));
-            while (queryActive)
-            {
-                await Task.Delay(500);
-            }
+            using (var tokenSource =
+                CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token))
+                while (queryActive && !tokenSource.IsCancellationRequested)
+                {
+                    await Task.Delay(100, tokenSource.Token);
+                }
 
             return shot;
         }
@@ -116,11 +121,14 @@ namespace Akka.Persistence.Pulsar.Snapshot
         protected override async Task SaveAsync(SnapshotMetadata metadata, object snapshot)
         {
             var (topic, producer) = GetProducer(metadata.PersistenceId, "Snapshot");
-            while (producer == null)
-            {
-                (topic, producer) = GetProducer(metadata.PersistenceId, "Snapshot");
-                await Task.Delay(1000);
-            }
+            using (var tokenSource =
+                CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token))
+                while (producer == null && !tokenSource.IsCancellationRequested)
+                {
+                    (topic, producer) = GetProducer(metadata.PersistenceId, "Snapshot");
+                    await Task.Delay(100, tokenSource.Token);
+                }
+
             var snapshotEntry = ToSnapshotEntry(metadata, snapshot);
             _client.Send(new Send(snapshotEntry, topic, ImmutableDictionary<string, object>.Empty), producer);
         }
@@ -163,12 +171,15 @@ namespace Akka.Persistence.Pulsar.Snapshot
             }
             return (null, null);
         }
-
         protected override void PostStop()
         {
             base.PostStop();
-            _client.DisposeAsync();
+
+            // stop all operations executed in the background
+            _pendingRequestsCancellation.Cancel();
+            _client.DisposeAsync().GetAwaiter();
         }
+        
         private object Deserialize(byte[] bytes)
         {
             return ((Serialization.Snapshot)_serializer.FromBinary(bytes, SnapshotType)).Data;
@@ -188,7 +199,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
                 PersistenceId = metadata.PersistenceId,
                 SequenceNr = metadata.SequenceNr,
                 Snapshot = Convert.ToBase64String(binary),
-                Timestamp = metadata.Timestamp.Ticks
+                Timestamp = metadata.Timestamp.ToEpochTime()
             };
         }
 
