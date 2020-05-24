@@ -22,7 +22,7 @@ namespace Akka.Persistence.Pulsar.Journal
 
         public bool IsDeleted { get; set; }
 
-        public string Payload { get; set; }
+        public byte[] Payload { get; set; }
 
         public long Ordering { get; set; }
         public string Tags { get; set; }

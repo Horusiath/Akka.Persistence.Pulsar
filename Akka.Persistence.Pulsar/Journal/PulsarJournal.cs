@@ -183,7 +183,7 @@ namespace Akka.Persistence.Pulsar.Journal
                 Id = message.PersistenceId + "_" + message.SequenceNr,
                 Ordering = DateTimeHelper.CurrentUnixTimeMillis(), // Auto-populates with timestamp
                 IsDeleted = message.IsDeleted,
-                Payload = Convert.ToBase64String(binary),
+                Payload = binary,
                 PersistenceId = message.PersistenceId,
                 SequenceNr = message.SequenceNr,
                 Tags = JsonSerializer.Serialize(tagged.Tags == null ? new List<string>() : tagged.Tags.ToList(), new JsonSerializerOptions{WriteIndented = true} )
@@ -248,58 +248,40 @@ namespace Akka.Persistence.Pulsar.Journal
              * of data returned by a query. This was at the root of https://github.com/akkadotnet/Akka.Persistence.MongoDB/issues/80
              */
             // Limit allows only integer
-            using var tokenSource =
-                CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token);
-            return await Task.Run(async() => {
-                var ids = _allPersistenceIds.ToList();
+            using var tokenSource = CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token);
+            
+            var ids = _allPersistenceIds.ToList();
+            ids.ForEach(x => x.Replace("-", "_"));
+            if (!ids.Any())
+            {
+                //let us wait 5 seconds
+                await Task.Delay(5000, tokenSource.Token);
+                ids = _allPersistenceIds.ToList();
                 ids.ForEach(x => x.Replace("-", "_"));
                 if (!ids.Any())
                 {
-                    //let us wait 5 seconds
-                    await Task.Delay(5000, tokenSource.Token);
-                    ids = _allPersistenceIds.ToList();
-                    ids.ForEach(x => x.Replace("-", "_"));
-                    if (!ids.Any())
-                    {
-                        return replay.Max;
-                    }
+                    return replay.Max;
                 }
-                var tag = replay.Tag;
-                var queryActive = true;
-                var maxOrderingId = 0L;
-                _journalExecutor.Client.PulsarSql(new Sql(_journalExecutor.TagsStatement(replay, ids),
-                    d =>
-                    {
-                        if (d.ContainsKey("Finished"))
-                        {
-                            queryActive = false;
-                            return;
-                        }
-
-                        var m = JsonSerializer.Deserialize<JournalEntry>(d["Message"]);
-                        var ordering = m.SequenceNr;
-                        var payload = Convert.FromBase64String(m.Payload);
-                        var persistent = Deserialize(payload);
-                        foreach (var adapted in AdaptFromJournal(persistent))
-                            replay.ReplyTo.Tell(new ReplayedTaggedMessage(adapted, tag, ordering),
-                                ActorRefs.NoSender);
-
-                    }, e =>
-                    {
-                        _log.Error(e.ToString());
-                        queryActive = false;
-                    }, _journalExecutor.Settings.PrestoServer, l =>
-                    {
-                        _log.Info(l);
-                    }, true));
-                
-                while (queryActive && !tokenSource.IsCancellationRequested)
-                {
-                    await Task.Delay(100, tokenSource.Token);
-                }
-
-                return _journalExecutor.GetMaxOrderingId(replay, ids);
-            }, tokenSource.Token);
+            }
+            var tag = replay.Tag;
+            var result =_journalExecutor.Client.PulsarSql(new Sql(_journalExecutor.TagsStatement(replay, ids), e =>
+            {
+                _log.Error(e.ToString());
+            }, _journalExecutor.Settings.PrestoServer, l =>
+            {
+                _log.Info(l);
+            }));
+            foreach (var d in result)
+            {
+                var m = JsonSerializer.Deserialize<JournalEntry>(JsonSerializer.Serialize(d.Data));
+                var ordering = m.SequenceNr;
+                var payload = m.Payload;
+                var persistent = Deserialize(payload);
+                foreach (var adapted in AdaptFromJournal(persistent))
+                    replay.ReplyTo.Tell(new ReplayedTaggedMessage(adapted, tag, ordering),
+                        ActorRefs.NoSender);
+            }
+            return _journalExecutor.GetMaxOrderingId(replay, ids);
         }
 
         

@@ -9,7 +9,6 @@
 
 using System;
 using Akka.Configuration;
-using Akka.Persistence.Pulsar.Journal;
 using Akka.Persistence.TCK.Journal;
 using Xunit;
 using Xunit.Abstractions;
@@ -29,6 +28,6 @@ namespace Akka.Persistence.Pulsar.Tests
             Initialize();
         }
 
-        
+
     }
 }

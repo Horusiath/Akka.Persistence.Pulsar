@@ -11,9 +11,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Producer", "Pulsar Sample\P
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Samples", "Samples", "{EAD9B353-EE1C-46AF-8566-FC2033A62856}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sourcerer", "Sourcerer\Sourcerer.csproj", "{53ABB9E6-FC22-439A-AFE9-DE4B1CB3B496}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Sourcerer", "Sourcerer\Sourcerer.csproj", "{53ABB9E6-FC22-439A-AFE9-DE4B1CB3B496}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sample", "Sample\Sample.csproj", "{33581D20-FAC0-414C-9BF7-88B8ABC5431D}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Sample", "Sample\Sample.csproj", "{33581D20-FAC0-414C-9BF7-88B8ABC5431D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

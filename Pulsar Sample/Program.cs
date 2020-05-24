@@ -9,7 +9,7 @@ using Sample.Command;
 namespace Producer
 {
     class Program
-    {
+    {//https://stackoverflow.com/questions/58308230/orleans-akka-net-problem-with-understanding-the-actor-model
         static void Main(string[] args)
         {
             var config = File.ReadAllText("host.hocon");

@@ -7,8 +7,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Akka.Persistence.TCK" Version="1.4.5" />
-        <PackageReference Include="Akka.TestKit.Xunit2" Version="1.4.5" />
+        <PackageReference Include="Akka" Version="1.4.6" />
+        <PackageReference Include="Akka.Persistence.TCK" Version="1.4.6" />
+        <PackageReference Include="Akka.TestKit.Xunit2" Version="1.4.6" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.6.1" />
         <PackageReference Include="xunit" Version="2.4.1" />
         <PackageReference Include="xunit.runner.visualstudio" Version="2.4.1">

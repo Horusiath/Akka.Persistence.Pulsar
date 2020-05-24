@@ -33,12 +33,10 @@ namespace Akka.Persistence.Pulsar.Snapshot
         private readonly PulsarSettings _settings;
         private readonly ILoggingAdapter _log = Context.GetLogger();
         private readonly PulsarSystem _client; public static readonly ConcurrentDictionary<string, Dictionary<string, IActorRef>> _producers = new ConcurrentDictionary<string, Dictionary<string, IActorRef>>();
-        private DefaultProducerListener _producerListener;
-        private List<string> _pendingTopicProducer = new List<string>();
+        private readonly DefaultProducerListener _producerListener;
         private static readonly Type SnapshotType = typeof(Serialization.Snapshot);
         private readonly Serializer _serializer;
-        private AvroSchema _snapshotEntrySchema; 
-        private readonly Akka.Serialization.Serialization _serialization;
+        private readonly AvroSchema _snapshotEntrySchema;
 
 
         //public Akka.Serialization.Serialization Serialization => _serialization ??= Context.System.Serialization;
@@ -55,20 +53,10 @@ namespace Akka.Persistence.Pulsar.Snapshot
             _producerListener = new DefaultProducerListener(o =>
             {
                 _log.Info(o.ToString());
-            }, (to, n, p) =>
-            {
-                if (_producers.ContainsKey(to))
-                    _producers[to].Add(n, p);
-                else
-                {
-                    _producers[to] = new Dictionary<string, IActorRef> { { n, p } };
-                }
-                _pendingTopicProducer.Remove(to);
-            }, s =>
+            },s =>
             {
 
             });
-            _serialization = Context.System.Serialization;
             _serializer = Context.System.Serialization.FindSerializerForType(SnapshotType);
             _settings = settings;
             _client = settings.CreateSystem();
@@ -87,35 +75,19 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
         protected override async Task<SelectedSnapshot> LoadAsync(string persistenceId, SnapshotSelectionCriteria criteria)
         {
-            
-            var queryActive = true;
             SelectedSnapshot shot = null;
-            _client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, Timestamp, Snapshot  from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".\"snapshot-{persistenceId}\" WHERE SequenceNr <= {criteria.MaxSequenceNr} AND Timestamp <= {criteria.MaxTimeStamp.ToEpochTime()} ORDER BY SequenceNr DESC, __publish_time__ DESC LIMIT 1",
-                d =>
-                {
-                    if (d.ContainsKey("Finished"))
-                    {
-                        queryActive = false;
-                        return;
-                    }
-                    var m = JsonSerializer.Deserialize<SnapshotEntry>(d["Message"]);
-                    shot = ToSelectedSnapshot(m);
-                }, e =>
+            var data =_client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, Timestamp, Snapshot  from pulsar.\"{_settings.Tenant}/{_settings.Namespace}\".\"snapshot-{persistenceId}\" WHERE SequenceNr <= {criteria.MaxSequenceNr} AND Timestamp <= {criteria.MaxTimeStamp.ToEpochTime()} ORDER BY SequenceNr DESC, __publish_time__ DESC LIMIT 1",
+                 e =>
                 {
                     _log.Error(e.ToString());
-                    queryActive = false;
                 }, _settings.PrestoServer, l =>
                 {
                     _log.Info(l);
-                },true));
-            using (var tokenSource =
-                CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token))
-                while (queryActive && !tokenSource.IsCancellationRequested)
-                {
-                    await Task.Delay(100, tokenSource.Token);
-                }
-
-            return shot;
+                }));
+            var d = data.GetEnumerator().Current?.Data;
+            if (d != null)
+                return await Task.FromResult(ToSelectedSnapshot(JsonSerializer.Deserialize<SnapshotEntry>(JsonSerializer.Serialize(d))));
+            return await Task.FromResult(shot);
         }
 
         protected override async Task SaveAsync(SnapshotMetadata metadata, object snapshot)
@@ -146,30 +118,31 @@ namespace Akka.Persistence.Pulsar.Snapshot
                     .SendTimeout(10000)
                     .EventListener(_producerListener)
                     .ProducerConfigurationData;
-                _client.PulsarProducer(new CreateProducer(_snapshotEntrySchema, producerConfig));
+               var producer = _client.PulsarProducer(new CreateProducer(_snapshotEntrySchema, producerConfig));
+               if (_producers.ContainsKey(producer.Topic))
+                   _producers[producer.Topic].Add(producer.ProducerName, producer.Producer);
+               else
+               {
+                   _producers[producer.Topic] = new Dictionary<string, IActorRef> { { producer.ProducerName, producer.Producer } };
+               }
             }
 
         }
         private (string topic, IActorRef producer) GetProducer(string persistenceid, string type)
         {
             var topic = $"{_settings.TopicPrefix.TrimEnd('/')}/{type}-{persistenceid}".ToLower();
-            if (!_pendingTopicProducer.Contains(topic))
+            var p = _producers.FirstOrDefault(x => x.Key == topic && x.Value.ContainsKey($"{type.ToLower()}-{persistenceid}")).Value?.Values.FirstOrDefault();
+            if (p == null)
             {
-                var p = _producers.FirstOrDefault(x => x.Key == topic && x.Value.ContainsKey($"{type.ToLower()}-{persistenceid}")).Value?.Values.FirstOrDefault();
-                if (p == null)
+                switch (type.ToLower())
                 {
-                    switch (type.ToLower())
-                    {
-                        case "snapshot":
-                            CreateSnapshotProducer(persistenceid);
-                            break;
-                    }
-                    _pendingTopicProducer.Add(topic);
-                    return (null, null);
+                    case "snapshot":
+                        CreateSnapshotProducer(persistenceid);
+                        break;
                 }
-                return (topic, p);
+                return GetProducer(persistenceid, type);
             }
-            return (null, null);
+            return (topic, p);
         }
         protected override void PostStop()
         {
