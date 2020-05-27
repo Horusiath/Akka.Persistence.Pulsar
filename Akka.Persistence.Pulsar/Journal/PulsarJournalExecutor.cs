@@ -24,7 +24,7 @@ namespace Akka.Persistence.Pulsar.Journal
         private readonly ILoggingAdapter _log ;
         private readonly Serializer _serializer;
         private static readonly Type PersistentRepresentationType = typeof(IPersistentRepresentation);
-        public static readonly ConcurrentDictionary<string, Dictionary<string, IActorRef>> Producers = new ConcurrentDictionary<string, Dictionary<string, IActorRef>>();
+        public static readonly ConcurrentDictionary<string, IActorRef> Producers = new ConcurrentDictionary<string, IActorRef>();
         private readonly DefaultProducerListener _producerListener;
 
         private (string topic, IActorRef producer) _persistenceId;
@@ -52,7 +52,6 @@ namespace Akka.Persistence.Pulsar.Journal
             });
             Settings = settings;
             Client = settings.CreateSystem();
-            Client.SetupSqlServers(new SqlServers(new List<string> { Settings.PrestoServer }.ToImmutableList()));
             CreatePersistentProducer();
             GetAllPersistenceIds();
         }
@@ -72,11 +71,14 @@ namespace Akka.Persistence.Pulsar.Journal
                 }));
             foreach (var message in messages)
             {
-                var replay = recoveryCallback;
-                var m = JsonSerializer.Deserialize<JournalEntry>(JsonSerializer.Serialize(message.Data));
-                var payload = m.Payload;
-                var der = Deserialize(payload);
-                replay(der);
+                if (message.HasRow)
+                {
+                    var replay = recoveryCallback;
+                    var m = JsonSerializer.Deserialize<JournalEntry>(JsonSerializer.Serialize(message.Data));
+                    var payload = m.Payload;
+                    var der = Deserialize(payload);
+                    replay(der);
+                }
             }
             await Task.CompletedTask;
         }
@@ -90,17 +92,25 @@ namespace Akka.Persistence.Pulsar.Journal
                 {
                     _log.Info(l);
                 }));
-            var t = data.GetEnumerator().Current?.Data["SequenceNr"];
-            return await Task.FromResult(t != null ? long.Parse(t.ToString()) : 0L);
+            var seq = 0L;
+            foreach (var d in data)
+            {
+                if (d.HasRow)
+                {
+                    seq = (long) d.Data["SequenceNr"];
+                }
+                break;
+            }
+            return await Task.FromResult(seq);
         }
         private void CreateJournalProducer(string persistenceid)
         {
             var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/journal-{persistenceid}".ToLower();
-            var p = Producers.FirstOrDefault(x => x.Key == topic && x.Value.ContainsKey($"journal-{persistenceid}")).Value?.Values.FirstOrDefault();
+            var p = Producers.FirstOrDefault(x => x.Key == topic).Value;
             if (p == null)
             {
                 var producerConfig = new ProducerConfigBuilder()
-                    .ProducerName($"journal-{persistenceid}")
+                    .ProducerName($"journal-{persistenceid}-{DateTimeHelper.CurrentUnixTimeMillis()}")
                     .Topic(topic)
                     .Schema(_journalEntrySchema)
                     .SendTimeout(10000)
@@ -108,10 +118,10 @@ namespace Akka.Persistence.Pulsar.Journal
                     .ProducerConfigurationData;
                 var producer = Client.PulsarProducer(new CreateProducer(_journalEntrySchema, producerConfig));
                 if (Producers.ContainsKey(producer.Topic))
-                    Producers[producer.Topic].Add(producer.ProducerName, producer.Producer);
+                    Producers[producer.Topic] = producer.Producer;
                 else
                 {
-                    Producers[producer.Topic] = new Dictionary<string, IActorRef> { { producer.ProducerName, producer.Producer } };
+                    Producers[producer.Topic] = producer.Producer;
                 }
             }
         }
@@ -122,7 +132,7 @@ namespace Akka.Persistence.Pulsar.Journal
             if(p.producer == null)
             {
                 var producerConfig = new ProducerConfigBuilder()
-                    .ProducerName("persistence-ids")
+                    .ProducerName($"persistence-ids-{DateTimeOffset.Now.ToUnixTimeMilliseconds()}")
                     .Topic(topic)
                     .Schema(_persistentEntrySchema)
                     .SendTimeout(10000)
@@ -144,13 +154,14 @@ namespace Akka.Persistence.Pulsar.Journal
                 }));
             foreach (var d in ids)
             {
-                _allPersistenceIds.Add(d.Data["Id"].ToString());
+                if(d.HasRow)
+                    _allPersistenceIds.Add(d.Data["Id"].ToString());
             }
         }
         internal (string topic, IActorRef producer) GetProducer(string persistenceid, string type)
         {
             var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/{type}-{persistenceid}".ToLower();
-            var p = Producers.FirstOrDefault(x => x.Key == topic && x.Value.ContainsKey($"{type.ToLower()}-{persistenceid}")).Value?.Values.FirstOrDefault();
+            var p = Producers.FirstOrDefault(x => x.Key == topic).Value;
             if (p == null)
             {
                 switch (type.ToLower())
@@ -208,7 +219,6 @@ namespace Akka.Persistence.Pulsar.Journal
             tags += string.Join(", ", ls);
             tags += $"){Environment.NewLine}";
             tags += "select MAX(SequenceNr) AS SequenceNr from tags";
-            var sequenceNr = 0L;
             var messages = Client.PulsarSql(new Sql(tags,
                  e =>
                 {
@@ -217,10 +227,17 @@ namespace Akka.Persistence.Pulsar.Journal
                 {
                     _log.Info(l);
                 }));
-            var data = messages.GetEnumerator().Current?.Data;
-            if (data == null) return sequenceNr;
-            var m = JsonSerializer.Deserialize<JournalEntry>(JsonSerializer.Serialize(data));
-            return m.SequenceNr;
+            var seq = 0L;
+
+            foreach (var d in messages)
+            {
+                if (d.HasRow)
+                {
+                    seq = (long)d.Data["SequenceNr"];
+                }
+                break;
+            }
+            return seq;
         }
     }
 }

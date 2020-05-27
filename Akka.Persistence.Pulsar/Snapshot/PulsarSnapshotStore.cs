@@ -60,7 +60,6 @@ namespace Akka.Persistence.Pulsar.Snapshot
             _serializer = Context.System.Serialization.FindSerializerForType(SnapshotType);
             _settings = settings;
             _client = settings.CreateSystem();
-            _client.SetupSqlServers(new SqlServers(new List<string> { _settings.PrestoServer }.ToImmutableList()));
         }
         
         protected override async Task DeleteAsync(SnapshotMetadata metadata)
@@ -93,16 +92,9 @@ namespace Akka.Persistence.Pulsar.Snapshot
         protected override async Task SaveAsync(SnapshotMetadata metadata, object snapshot)
         {
             var (topic, producer) = GetProducer(metadata.PersistenceId, "Snapshot");
-            using (var tokenSource =
-                CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token))
-                while (producer == null && !tokenSource.IsCancellationRequested)
-                {
-                    (topic, producer) = GetProducer(metadata.PersistenceId, "Snapshot");
-                    await Task.Delay(100, tokenSource.Token);
-                }
-
             var snapshotEntry = ToSnapshotEntry(metadata, snapshot);
             _client.Send(new Send(snapshotEntry, topic, ImmutableDictionary<string, object>.Empty), producer);
+            await Task.CompletedTask;
         }
 
         private void CreateSnapshotProducer(string persistenceid)
@@ -150,7 +142,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
 
             // stop all operations executed in the background
             _pendingRequestsCancellation.Cancel();
-            _client.DisposeAsync().GetAwaiter();
+            _client.Stop();
         }
         
         private object Deserialize(byte[] bytes)

@@ -125,13 +125,6 @@ namespace Akka.Persistence.Pulsar.Journal
                 }
 
                 var (topic, producer) = _journalExecutor.GetProducer(message.PersistenceId, "Journal");
-                using (var tokenSource =
-                    CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token))
-                    while (producer == null && !tokenSource.IsCancellationRequested)
-                    {
-                        (topic, producer) = _journalExecutor.GetProducer(message.PersistenceId, "Journal");
-                        await Task.Delay(100, tokenSource.Token);
-                    }
                 var journalEntries = persistentMessages.Select(ToJournalEntry).Select(x => new Send(x, topic, ImmutableDictionary<string, object>.Empty)).ToList();
                 _journalExecutor.Client.BulkSend(new BulkSend(journalEntries, topic), producer);
                 if (HasPersistenceIdSubscribers)
@@ -195,7 +188,7 @@ namespace Akka.Persistence.Pulsar.Journal
 
             // stop all operations executed in the background
             _pendingRequestsCancellation.Cancel();
-            _journalExecutor.Client.DisposeAsync().GetAwaiter();
+            _journalExecutor.Client.Stop();
         }
         
         private byte[] Serialize(IPersistentRepresentation message)
