@@ -47,6 +47,8 @@
 								auth-class = ""
 								auth-param = ""
 								presto-server = "http://localhost:8081"
+							    admin-url = "http://localhost:8080"
+							    side = "producer" #producer or consumer/listener
 								topic-prefix = "persistent://public/default/"
 								pulsar-tenant = "public"
 								pulsar-namespace = "default"
@@ -90,6 +92,8 @@
 							  auth-class = ""
 							  auth-param = ""
 							  presto-server = "http://localhost:8081"
+							  admin-url = "http://localhost:8080"
+							  operation-time-out = 30000
 							  topic-prefix = "persistent://public/default/"
 							  pulsar-tenant = "public"
 							  pulsar-namespace = "default"

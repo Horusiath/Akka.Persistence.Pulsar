@@ -67,6 +67,7 @@ namespace Akka.Persistence.Pulsar.Tests
         /// </summary>
         protected IEnumerable<AtomicWrite> Initialize()
         {
+            Pid = Guid.NewGuid().ToString();
             _senderProbe = CreateTestProbe();
             _receiverProbe = CreateTestProbe();
             PreparePersistenceId(Pid);

@@ -22,7 +22,12 @@ using Akka.Event;
 using Akka.Persistence.Journal;
 using Akka.Persistence.Pulsar.Query;
 using Akka.Serialization;
+using SharpPulsar.Akka.Configuration;
 using SharpPulsar.Akka.InternalCommands;
+using SharpPulsar.Akka.InternalCommands.Consumer;
+using SharpPulsar.Api;
+using SharpPulsar.Handlers;
+using SharpPulsar.Impl.Schema;
 
 namespace Akka.Persistence.Pulsar.Journal
 {
@@ -39,6 +44,8 @@ namespace Akka.Persistence.Pulsar.Journal
             new Dictionary<string, ISet<IActorRef>>();
         private readonly Dictionary<string, ISet<IActorRef>> _persistenceIdSubscribers
             = new Dictionary<string, ISet<IActorRef>>();
+
+        private bool _taggedFirstRun = true;
 
         /// <summary>
         /// TBD
@@ -124,8 +131,15 @@ namespace Akka.Persistence.Pulsar.Journal
                     }
                 }
 
+                var metadata = new Dictionary<string, object>
+                {
+                    ["Properties"] = new Dictionary<string, string>
+                    {
+                        {"Tag", string.Join(",", allTags) }
+                    }
+                };
                 var (topic, producer) = _journalExecutor.GetProducer(message.PersistenceId, "Journal");
-                var journalEntries = persistentMessages.Select(ToJournalEntry).Select(x => new Send(x, topic, ImmutableDictionary<string, object>.Empty)).ToList();
+                var journalEntries = persistentMessages.Select(ToJournalEntry).Select(x => new Send(x, topic, metadata.ToImmutableDictionary())).ToList();
                 _journalExecutor.Client.BulkSend(new BulkSend(journalEntries, topic), producer);
                 if (HasPersistenceIdSubscribers)
                     persistentIds.Add(message.PersistenceId);
@@ -236,48 +250,57 @@ namespace Akka.Persistence.Pulsar.Journal
         /// <returns>TBD</returns>
         private async Task<long> ReplayTaggedMessagesAsync(ReplayTaggedMessages replay)
         {
-            /*
-             *  NOTE: limit is used like a pagination value, not a cap on the amount
-             * of data returned by a query. This was at the root of https://github.com/akkadotnet/Akka.Persistence.MongoDB/issues/80
-             */
-            // Limit allows only integer
-            using var tokenSource = CancellationTokenSource.CreateLinkedTokenSource(_pendingRequestsCancellation.Token);
-            
-            var ids = _allPersistenceIds.ToList();
-            ids.ForEach(x => x.Replace("-", "_"));
-            if (!ids.Any())
+            var topic = $"{_journalExecutor.Settings.TopicPrefix.TrimEnd('/')}/journal-*".ToLower();
+            var tag = replay.Tag;
+            if (!_taggedFirstRun)
             {
-                //let us wait 5 seconds
-                await Task.Delay(5000, tokenSource.Token);
-                ids = _allPersistenceIds.ToList();
-                ids.ForEach(x => x.Replace("-", "_"));
-                if (!ids.Any())
+                var nextPlay = new NextPlay(topic, replay.Max, replay.FromOffset, replay.ToOffset, true);
+                foreach (var m in _journalExecutor.Client.EventSource<JournalEntry>(nextPlay, e =>
                 {
-                    return replay.Max;
+                    Console.WriteLine($"Sequence Id:{e.SequenceId}");
+                }))
+                {
+                    var ordering = m.SequenceNr;
+                    var payload = m.Payload;
+                    var persistent = Deserialize(payload);
+                    foreach (var adapted in AdaptFromJournal(persistent))
+                        replay.ReplyTo.Tell(new ReplayedTaggedMessage(adapted, tag, ordering),
+                            ActorRefs.NoSender);
                 }
             }
-            var tag = replay.Tag;
-            var result =_journalExecutor.Client.PulsarSql(new Sql(_journalExecutor.TagsStatement(replay, ids), e =>
+            else
             {
-                _log.Error(e.ToString());
-            }, _journalExecutor.Settings.PrestoServer, l =>
-            {
-                _log.Info(l);
-            }));
-            foreach (var d in result)
-            {
-                var m = JsonSerializer.Deserialize<JournalEntry>(JsonSerializer.Serialize(d.Data));
-                var ordering = m.SequenceNr;
-                var payload = m.Payload;
-                var persistent = Deserialize(payload);
-                foreach (var adapted in AdaptFromJournal(persistent))
-                    replay.ReplyTo.Tell(new ReplayedTaggedMessage(adapted, tag, ordering),
-                        ActorRefs.NoSender);
+                var consumerListener = new DefaultConsumerEventListener(Console.WriteLine);
+                var readerListener = new DefaultMessageListener(null, null);
+                var jsonSchem = AvroSchema.Of(typeof(JournalEntry));
+                var readerConfig = new ReaderConfigBuilder()
+                    .ReaderName("event-reader")
+                    .Schema(jsonSchem)
+                    .EventListener(consumerListener)
+                    .ReaderListener(readerListener)
+                    .Topic(topic)
+                    .StartMessageId(MessageIdFields.Latest)
+                    .ReaderConfigurationData;
+                var repy = new ReplayTopic(readerConfig, _journalExecutor.Settings.AdminUrl, replay.FromOffset, replay.ToOffset, replay.Max, new Tag("Tag", tag), true);
+                foreach (var m in _journalExecutor.Client.EventSource<JournalEntry>(repy, e =>
+                {
+                    Console.WriteLine($"Sequence Id:{e.SequenceId}");
+                }))
+                {
+                    var ordering = m.SequenceNr;
+                    var payload = m.Payload;
+                    var persistent = Deserialize(payload);
+                    foreach (var adapted in AdaptFromJournal(persistent))
+                        replay.ReplyTo.Tell(new ReplayedTaggedMessage(adapted, tag, ordering),
+                            ActorRefs.NoSender);
+                }
             }
-            return _journalExecutor.GetMaxOrderingId(replay, ids);
+
+            _taggedFirstRun = false;
+            var max = _journalExecutor.GetMaxOrderingId(replay);
+            return await Task.FromResult(max);
         }
 
-        
         private void AddAllPersistenceIdSubscriber(IActorRef subscriber)
         {
             _allPersistenceIdSubscribers.Add(subscriber);
@@ -293,7 +316,6 @@ namespace Akka.Persistence.Pulsar.Journal
             }
 
             subscriptions.Add(subscriber);
-            _journalExecutor.GetAllPersistenceIds();
         }
 
         private void AddPersistenceIdSubscriber(IActorRef subscriber, string persistenceId)
