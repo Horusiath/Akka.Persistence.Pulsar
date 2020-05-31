@@ -66,6 +66,7 @@ namespace Akka.Persistence.Pulsar
                 .VerifyCertName(VerifyCertificateName)
                 .ConnectionsPerBroker(1)
                 .UseProxy(UseProxy)
+                .OperationTimeout(5000)
                 .Authentication(AuthenticationFactory.Create(AuthClass, AuthParam));
                 
             if (!(TrustedCertificateAuthority is null))

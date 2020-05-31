@@ -66,7 +66,7 @@ namespace Sourcerer
 
         private static void EventsByPersistenceId()
         {
-            var persistenceSource = _readJournal.EventsByPersistenceId("utcreader", 0L, long.MaxValue);
+            var persistenceSource = _readJournal.EventsByPersistenceId("utcreader-1", 0L, long.MaxValue);
             _persistenceStream = new SourceObservable<EventEnvelope>(persistenceSource, _mat);
             _persistenceStream.Subscribe(e =>
             {

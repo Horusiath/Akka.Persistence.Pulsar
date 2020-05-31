@@ -13,6 +13,7 @@ using Akka.Serialization;
 using SharpPulsar.Akka;
 using SharpPulsar.Akka.Configuration;
 using SharpPulsar.Akka.InternalCommands;
+using SharpPulsar.Akka.InternalCommands.Consumer;
 using SharpPulsar.Akka.InternalCommands.Producer;
 using SharpPulsar.Handlers;
 using SharpPulsar.Impl.Schema;
@@ -26,6 +27,7 @@ namespace Akka.Persistence.Pulsar.Journal
         private static readonly Type PersistentRepresentationType = typeof(IPersistentRepresentation);
         public static readonly ConcurrentDictionary<string, IActorRef> Producers = new ConcurrentDictionary<string, IActorRef>();
         private readonly DefaultProducerListener _producerListener;
+        private PulsarSettings _settings;
 
         private (string topic, IActorRef producer) _persistenceId;
 
@@ -84,6 +86,8 @@ namespace Akka.Persistence.Pulsar.Journal
         }
         public async Task<long> ReadHighestSequenceNr(string persistenceId, long fromSequenceNr)
         {
+            var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/journal-*";
+            Client.EventSource(new GetNumberOfEntries(topic, _));
             var data = Client.PulsarSql(new Sql($"select SequenceNr from pulsar.\"{Settings.Tenant}/{Settings.Namespace}\".\"journal-{persistenceId}\" ORDER BY Ordering DESC LIMIT 1",
                  e =>
                 {
@@ -103,6 +107,27 @@ namespace Akka.Persistence.Pulsar.Journal
             }
             return await Task.FromResult(seq);
         }
+        /*public async Task<long> ReadHighestSequenceNr(string persistenceId, long fromSequenceNr)
+        {
+            var data = Client.PulsarSql(new Sql($"select SequenceNr from pulsar.\"{Settings.Tenant}/{Settings.Namespace}\".\"journal-{persistenceId}\" ORDER BY Ordering DESC LIMIT 1",
+                 e =>
+                {
+                    _log.Error(e.ToString());
+                }, Settings.PrestoServer, l =>
+                {
+                    _log.Info(l);
+                }));
+            var seq = 0L;
+            foreach (var d in data)
+            {
+                if (d.HasRow)
+                {
+                    seq = (long) d.Data["SequenceNr"];
+                }
+                break;
+            }
+            return await Task.FromResult(seq);
+        }*/
         private void CreateJournalProducer(string persistenceid)
         {
             var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/journal-{persistenceid}".ToLower();

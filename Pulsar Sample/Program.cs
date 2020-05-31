@@ -1,5 +1,8 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
+using System.Reactive.Linq;
 using System.Threading;
 using Akka.Actor;
 using Akka.Configuration;
@@ -14,8 +17,9 @@ namespace Producer
         {
             var config = File.ReadAllText("host.hocon");
             var actorSystem = ActorSystem.Create("SampleSystem", ConfigurationFactory.ParseString(config));
-            
-            var sampleActor = actorSystem.ActorOf(SamplePersistentActor.Prop(), "utcreader");
+            var conct = new ConcurrentDictionary<Type, object>();
+            var y = conct.Take(100);
+            var sampleActor = actorSystem.ActorOf(SamplePersistentActor.Prop(), "utcreader-1");
             while (true)
             {
                 Thread.Sleep(TimeSpan.FromSeconds(1));
