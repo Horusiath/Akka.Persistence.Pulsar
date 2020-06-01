@@ -65,10 +65,7 @@ namespace Akka.Persistence.Pulsar.Journal
             if (_activeReplayTopics.Contains(topic))
             {
                 var nextPlay = new NextPlay(topic, max, fromSequenceNr, toSequenceNr);
-                foreach (var m in Client.EventSource<JournalEntry>(nextPlay, e =>
-                {
-                    Console.WriteLine($"Sequence Id:{e.SequenceId}");
-                }))
+                foreach (var m in Client.EventSource<JournalEntry>(nextPlay))
                 {
                     var repy = recoveryCallback;
                     var payload = m.Payload;
@@ -89,11 +86,8 @@ namespace Akka.Persistence.Pulsar.Journal
                     .Topic(topic)
                     .StartMessageId(MessageIdFields.Latest)
                     .ReaderConfigurationData;
-                var replay = new ReplayTopic(readerConfig, Settings.AdminUrl, fromSequenceNr, toSequenceNr, max, null, false);
-                foreach (var m in Client.EventSource<JournalEntry>(replay, e =>
-                {
-                    Console.WriteLine($"Sequence Id:{e.SequenceId}");
-                }))
+                var replay = new ReplayTopic(readerConfig, Settings.AdminUrl, fromSequenceNr, toSequenceNr, toSequenceNr, null, false);
+                foreach (var m in Client.EventSource<JournalEntry>(replay))
                 {
                     var repy = recoveryCallback;
                     var payload = m.Payload;

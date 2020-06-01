@@ -255,10 +255,7 @@ namespace Akka.Persistence.Pulsar.Journal
             if (!_taggedFirstRun)
             {
                 var nextPlay = new NextPlay(topic, replay.Max, replay.FromOffset, replay.ToOffset, true);
-                foreach (var m in _journalExecutor.Client.EventSource<JournalEntry>(nextPlay, e =>
-                {
-                    Console.WriteLine($"Sequence Id:{e.SequenceId}");
-                }))
+                foreach (var m in _journalExecutor.Client.EventSource<JournalEntry>(nextPlay))
                 {
                     var ordering = m.SequenceNr;
                     var payload = m.Payload;
@@ -282,10 +279,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     .StartMessageId(MessageIdFields.Latest)
                     .ReaderConfigurationData;
                 var repy = new ReplayTopic(readerConfig, _journalExecutor.Settings.AdminUrl, replay.FromOffset, replay.ToOffset, replay.Max, new Tag("Tag", tag), true);
-                foreach (var m in _journalExecutor.Client.EventSource<JournalEntry>(repy, e =>
-                {
-                    Console.WriteLine($"Sequence Id:{e.SequenceId}");
-                }))
+                foreach (var m in _journalExecutor.Client.EventSource<JournalEntry>(repy))
                 {
                     var ordering = m.SequenceNr;
                     var payload = m.Payload;
