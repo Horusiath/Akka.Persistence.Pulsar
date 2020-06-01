@@ -65,7 +65,8 @@ namespace Akka.Persistence.Pulsar.Journal
             if (_activeReplayTopics.Contains(topic))
             {
                 var nextPlay = new NextPlay(topic, max, fromSequenceNr, toSequenceNr);
-                foreach (var m in Client.EventSource<JournalEntry>(nextPlay))
+                var messages = Client.EventSource<JournalEntry>(nextPlay);
+                foreach (var m in messages)
                 {
                     var repy = recoveryCallback;
                     var payload = m.Payload;
@@ -86,8 +87,14 @@ namespace Akka.Persistence.Pulsar.Journal
                     .Topic(topic)
                     .StartMessageId(MessageIdFields.Latest)
                     .ReaderConfigurationData;
-                var replay = new ReplayTopic(readerConfig, Settings.AdminUrl, fromSequenceNr, toSequenceNr, toSequenceNr, null, false);
-                foreach (var m in Client.EventSource<JournalEntry>(replay))
+                var replay = new ReplayTopic(readerConfig, Settings.AdminUrl, fromSequenceNr, toSequenceNr, max, null, false);
+                var messages = Client.EventSource(replay, message =>
+                {
+                    var m = message.Message.ToTypeOf<JournalEntry>();
+                    m.SequenceNr = m.SequenceNr;
+                    return m;
+                });
+                foreach (var m in messages)
                 {
                     var repy = recoveryCallback;
                     var payload = m.Payload;
@@ -99,61 +106,12 @@ namespace Akka.Persistence.Pulsar.Journal
             
             await Task.CompletedTask;
         }
-        
-        /*public async Task ReplayMessages(IActorContext context, string persistenceId, long fromSequenceNr, long toSequenceNr, long max, Action<IPersistentRepresentation> recoveryCallback)
-        {
-            //RETENTION POLICY MUST BE SENT AT THE NAMESPACE ELSE TOPIC IS DELETED
-            CreateJournalProducer(persistenceId);
-            _log.Debug("Entering method ReplayMessagesAsync for persistentId [{0}] from seqNo range [{1}, {2}] and taking up to max [{3}]", persistenceId, fromSequenceNr, toSequenceNr, max);
-            var messages = Client.PulsarSql(new Sql($"select Id, PersistenceId, SequenceNr, IsDeleted, Payload, Ordering, Tags from pulsar.\"{Settings.Tenant}/{Settings.Namespace}\".\"journal-{persistenceId}\" where SequenceNr BETWEEN bigint '{fromSequenceNr}' AND bigint '{toSequenceNr}' ORDER BY Ordering ASC  LIMIT {max}",
-                 e =>
-                {
-                    var contxt = context;
-                    contxt.System.Log.Error(e.ToString());
-                }, Settings.PrestoServer, l =>
-                {
-                    _log.Info(l);
-                }));
-            foreach (var message in messages)
-            {
-                if (message.HasRow)
-                {
-                    var replay = recoveryCallback;
-                    var m = JsonSerializer.Deserialize<JournalEntry>(JsonSerializer.Serialize(message.Data));
-                    var payload = m.Payload;
-                    var der = Deserialize(payload);
-                    replay(der);
-                }
-            }
-            await Task.CompletedTask;
-        }*/
         public async Task<long> ReadHighestSequenceNr(string persistenceId, long fromSequenceNr)
         {
             var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/journal-{persistenceId}";
             var numb = Client.EventSource(new GetNumberOfEntries(topic, Settings.AdminUrl, fromSequenceNr, long.MaxValue, long.MaxValue));
             return await Task.FromResult(numb.Max.Value);
         }
-        /*public async Task<long> ReadHighestSequenceNr(string persistenceId, long fromSequenceNr)
-        {
-            var data = Client.PulsarSql(new Sql($"select SequenceNr from pulsar.\"{Settings.Tenant}/{Settings.Namespace}\".\"journal-{persistenceId}\" ORDER BY Ordering DESC LIMIT 1",
-                 e =>
-                {
-                    _log.Error(e.ToString());
-                }, Settings.PrestoServer, l =>
-                {
-                    _log.Info(l);
-                }));
-            var seq = 0L;
-            foreach (var d in data)
-            {
-                if (d.HasRow)
-                {
-                    seq = (long) d.Data["SequenceNr"];
-                }
-                break;
-            }
-            return await Task.FromResult(seq);
-        }*/
         private void CreateJournalProducer(string topic, string persistenceid)
         {
             var p = Producers.FirstOrDefault(x => x.Key == topic).Value;
@@ -233,7 +191,7 @@ namespace Akka.Persistence.Pulsar.Journal
             return (IPersistentRepresentation)_serializer.FromBinary(bytes, PersistentRepresentationType);
         }
 
-        internal PulsarSystem Client { get; }
+        public PulsarSystem Client { get; }
         internal PulsarSettings Settings { get; }
         internal (string topic, IActorRef producer) PersistenceId => _persistenceId;
         internal string TagsStatement(ReplayTaggedMessages replay, List<string> ids)
