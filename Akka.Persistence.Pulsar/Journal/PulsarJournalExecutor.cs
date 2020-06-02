@@ -109,7 +109,7 @@ namespace Akka.Persistence.Pulsar.Journal
         public async Task<long> ReadHighestSequenceNr(string persistenceId, long fromSequenceNr)
         {
             var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/journal-{persistenceId}";
-            var numb = Client.EventSource(new GetNumberOfEntries(topic, Settings.AdminUrl, fromSequenceNr, long.MaxValue, long.MaxValue));
+            var numb = Client.EventSource(new GetNumberOfEntries(topic, Settings.AdminUrl));
             return await Task.FromResult(numb.Max.Value);
         }
         private void CreateJournalProducer(string topic, string persistenceid)
@@ -217,7 +217,7 @@ namespace Akka.Persistence.Pulsar.Journal
         internal long GetMaxOrderingId(ReplayTaggedMessages replay)
         {
             var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/journal-*";
-            var numb = Client.EventSource(new GetNumberOfEntries(topic, Settings.AdminUrl, replay.FromOffset, replay.Max, replay.ToOffset));
+            var numb = Client.EventSource(new GetNumberOfEntries(topic, Settings.AdminUrl));
             return numb.Max.Value;
         }
         /*internal long GetMaxOrderingId(ReplayTaggedMessages replay, List<string> ids)

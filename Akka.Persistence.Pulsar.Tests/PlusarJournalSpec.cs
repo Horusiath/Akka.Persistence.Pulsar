@@ -72,7 +72,7 @@ namespace Akka.Persistence.Pulsar.Tests
             _senderProbe = CreateTestProbe();
             _receiverProbe = CreateTestProbe();
             PreparePersistenceId(_pid);
-            return WriteMessages(1, 5, _pid, _senderProbe.Ref, WriterGuid);
+            return WriteMessages(1, 10, _pid, _senderProbe.Ref, WriterGuid);
         }
 
         /// <summary>
@@ -147,7 +147,7 @@ namespace Akka.Persistence.Pulsar.Tests
         [Fact]
         public void Journal_should_replay_all_messages()
         {
-            Journal.Tell(new ReplayMessages(1, long.MaxValue, long.MaxValue, _pid, _receiverProbe.Ref));
+            Journal.Tell(new ReplayMessages(1, 6, 6, _pid, _receiverProbe.Ref));
             for (int i = 1; i <= 5; i++) 
                 _receiverProbe.ExpectMsg<ReplayedMessage>(m => IsReplayedMessage(m, i));
             _receiverProbe.ExpectMsg<RecoverySuccess>();

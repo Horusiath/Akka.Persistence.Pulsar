@@ -83,11 +83,7 @@ namespace Akka.Persistence.Pulsar.Journal
         //Is ReplayMessagesAsync called once per actor lifetime?
         public override async Task ReplayMessagesAsync(IActorContext context, string persistenceId, long fromSequenceNr, long toSequenceNr, long max, Action<IPersistentRepresentation> recoveryCallback)
         {
-            if (max > 2147483647)
-                max = 2147483647; // presto does not support limit > 2147483647
-            if(_firstRun)
-                _allPersistenceIds.Clear();
-            _firstRun = false;
+            
             NotifyNewPersistenceIdAdded(persistenceId);
             await _journalExecutor.ReplayMessages(context, persistenceId, fromSequenceNr, toSequenceNr, max,
                 recoveryCallback);
