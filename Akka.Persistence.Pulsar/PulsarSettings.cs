@@ -9,6 +9,7 @@
 
 using System;
 using System.Security.Cryptography.X509Certificates;
+using Akka.Actor;
 using Akka.Configuration;
 using SharpPulsar.Akka;
 using SharpPulsar.Akka.Network;
@@ -60,8 +61,10 @@ namespace Akka.Persistence.Pulsar
         public bool VerifyCertificateName { get; set; }
         public X509Certificate2 TrustedCertificateAuthority { get; set; }
         public X509Certificate2 ClientCertificate { get; set; }
+
+        public PulsarSystem PulsarSystem { get; set; }
         
-        public PulsarSystem CreateSystem()
+        public PulsarSystem CreateSystem(ActorSystem actorSystem)
         {
             var builder = new PulsarClientConfigBuilder()
                 .ServiceUrl(ServiceUrl)
@@ -71,7 +74,7 @@ namespace Akka.Persistence.Pulsar
                 .UseProxy(UseProxy)
                 .OperationTimeout(OperationTimeOut)
                 .Authentication(AuthenticationFactory.Create(AuthClass, AuthParam));
-                
+
             if (!(TrustedCertificateAuthority is null))
             {
                 builder = builder.AddTrustedAuthCert(this.TrustedCertificateAuthority);
@@ -79,12 +82,12 @@ namespace Akka.Persistence.Pulsar
 
             if (!(ClientCertificate is null))
             {
-                builder = builder.AddTlsCerts(new X509Certificate2Collection{ ClientCertificate });
+                builder = builder.AddTlsCerts(new X509Certificate2Collection { ClientCertificate });
             }
             //.Authentication(AuthenticationFactory.Token("eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJzaGFycHB1bHNhci1jbGllbnQtNWU3NzY5OWM2M2Y5MCJ9.lbwoSdOdBoUn3yPz16j3V7zvkUx-Xbiq0_vlSvklj45Bo7zgpLOXgLDYvY34h4MX8yHB4ynBAZEKG1ySIv76DPjn6MIH2FTP_bpI4lSvJxF5KsuPlFHsj8HWTmk57TeUgZ1IOgQn0muGLK1LhrRzKOkdOU6VBV_Hu0Sas0z9jTZL7Xnj1pTmGAn1hueC-6NgkxaZ-7dKqF4BQrr7zNt63_rPZi0ev47vcTV3ga68NUYLH5PfS8XIqJ_OV7ylouw1qDrE9SVN8a5KRrz8V3AokjThcsJvsMQ8C1MhbEm88QICdNKF5nu7kPYR6SsOfJJ1HYY-QBX3wf6YO3VAF_fPpQ"))
             //.ClientConfigurationData;
             var clientConfig = builder.ClientConfigurationData;
-            return new PulsarSystem(clientConfig);
+            return PulsarSystem.GetInstance(actorSystem, clientConfig);
         }
     }
 }

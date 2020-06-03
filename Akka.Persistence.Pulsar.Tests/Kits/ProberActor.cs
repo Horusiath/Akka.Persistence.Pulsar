@@ -26,6 +26,7 @@ namespace Akka.Persistence.Pulsar.Tests.Kits
                 case EventEnvelope e:
                 case LoadSnapshotResult f:
                 case SaveSnapshotSuccess g:
+                case ReplayMessagesFailure y:
                 case string s:
                     _queue.Add(new MessageEnvelope(message, Sender));
                     break;

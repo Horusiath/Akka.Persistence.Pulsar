@@ -59,7 +59,7 @@ namespace Akka.Persistence.Pulsar.Snapshot
             });
             _serializer = Context.System.Serialization.FindSerializerForType(SnapshotType);
             _settings = settings;
-            _client = settings.CreateSystem();
+            _client = settings.CreateSystem(Context.System);
         }
         
         protected override async Task DeleteAsync(SnapshotMetadata metadata)

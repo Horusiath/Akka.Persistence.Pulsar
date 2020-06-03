@@ -1,9 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Akka.Actor;
@@ -33,11 +31,11 @@ namespace Akka.Persistence.Pulsar.Journal
         private readonly AvroSchema _journalEntrySchema;
         private readonly AvroSchema _persistentEntrySchema;
         private readonly CancellationTokenSource _pendingRequestsCancellation;
-        private List<string> _activeReplayTopics;
+        private readonly List<string> _activeReplayTopics;
 
         private readonly HashSet<string> _allPersistenceIds = new HashSet<string>();
 
-        public PulsarJournalExecutor(PulsarSettings settings, ILoggingAdapter log, Serializer serializer, CancellationTokenSource cancellation)
+        public PulsarJournalExecutor(ActorSystem actorSystem, PulsarSettings settings, ILoggingAdapter log, Serializer serializer, CancellationTokenSource cancellation)
         {
             _activeReplayTopics = new List<string>();
             _pendingRequestsCancellation = cancellation;
@@ -54,7 +52,7 @@ namespace Akka.Persistence.Pulsar.Journal
                 _log.Info(s);
             });
             Settings = settings;
-            Client = settings.CreateSystem();
+            Client = settings.CreateSystem(actorSystem);
             //CreatePersistentProducer();
             //GetAllPersistenceIds();
         }

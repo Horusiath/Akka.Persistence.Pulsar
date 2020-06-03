@@ -66,7 +66,7 @@ namespace Akka.Persistence.Pulsar.Journal
         {
             _pendingRequestsCancellation = new CancellationTokenSource();
             _serializer = Context.System.Serialization.FindSerializerForType(PersistentRepresentationType);
-            _journalExecutor = new PulsarJournalExecutor(settings, Context.GetLogger(), _serializer, _pendingRequestsCancellation);
+            _journalExecutor = new PulsarJournalExecutor(Context.System, settings, Context.GetLogger(), _serializer, _pendingRequestsCancellation);
         }
 
         /// <summary>
