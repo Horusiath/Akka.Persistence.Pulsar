@@ -88,12 +88,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     .StartMessageId(MessageIdFields.Latest)
                     .ReaderConfigurationData;
                 var replay = new ReplayTopic(readerConfig, Settings.AdminUrl, fromSequenceNr, toSequenceNr, max, null, false);
-                var messages = Client.EventSource(replay, message =>
-                {
-                    var m = message.Message.ToTypeOf<JournalEntry>();
-                    m.SequenceNr = m.SequenceNr;
-                    return m;
-                });
+                var messages = Client.EventSource<JournalEntry>(replay);
                 foreach (var m in messages)
                 {
                     var repy = recoveryCallback;

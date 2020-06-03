@@ -10,14 +10,13 @@ namespace Akka.Persistence.Pulsar.Tests.Kits
     public class Prober
     {
         private BlockingCollection<MessageEnvelope> _collection;
-        private IActorRef _ref;
         private ActorSystem _sys;
 
-        public Prober(ActorSystem sys, BlockingCollection<MessageEnvelope> collection)
+        public Prober(ActorSystem sys)
         {
-            _collection = collection;
+            _collection = new BlockingCollection<MessageEnvelope>();
             _sys = sys;
-            _ref = _sys.ActorOf(ProberActor.Prop(_collection));
+            Ref = _sys.ActorOf(ProberActor.Prop(_collection));
         }
 
         public T ExpectMessage<T>(long timeoutms)
@@ -28,16 +27,19 @@ namespace Akka.Persistence.Pulsar.Tests.Kits
                 if (!(envelope.Message is T))
                 {
                     const string failMessage2 = "Failed: Expected a message of type {0}, but received {{{2}}} (type {1}) instead {3} from {4}";
-                    Assert.True(false, string.Format(failMessage2, typeof(T), envelope.Message.GetType(), envelope, "", envelope.Sender));
+                    Assert.True(false, string.Format(failMessage2, typeof(T), envelope.Message.GetType(), envelope.Message, "", envelope.Sender));
                 }
                 
             }
-            const string failMessage = "Failed: Timeout {0}ms while waiting for a message of type {1} {2}";
-            Assert.True(false, string.Format(failMessage, timeoutms, typeof(T), ""));
+            else
+            {
+                const string failMessage = "Failed: Timeout {0}ms while waiting for a message of type {1} {2}";
+                Assert.True(false, string.Format(failMessage, timeoutms, typeof(T), ""));
+            }
             return (T)envelope.Message;
         }
 
-        public T ExpectMessage<T>(long timeoutms, Action<T, IActorRef> assert)
+        public T ExpectMessage<T>(Action<T> assert, long timeoutms)
         {
             MessageEnvelope envelope = null;
             if (_collection.TryTake(out envelope, TimeSpan.FromMilliseconds(timeoutms)))
@@ -45,7 +47,7 @@ namespace Akka.Persistence.Pulsar.Tests.Kits
                 if (!(envelope.Message is T))
                 {
                     const string failMessage2 = "Failed: Expected a message of type {0}, but received {{{2}}} (type {1}) instead {3} from {4}";
-                    Assert.True(false, string.Format(failMessage2, typeof(T), envelope.Message.GetType(), envelope, "", envelope.Sender));
+                    Assert.True(false, string.Format(failMessage2, typeof(T), envelope.Message.GetType(), envelope.Message, "", envelope.Sender));
                 }
                 
             }
@@ -55,7 +57,7 @@ namespace Akka.Persistence.Pulsar.Tests.Kits
                 Assert.True(false, string.Format(failMessage, timeoutms, typeof(T), ""));
             }
             var msg = (T)envelope.Message;
-            assert(msg, envelope.Sender);
+            assert(msg);
             return msg;
         }
 
@@ -73,16 +75,19 @@ namespace Akka.Persistence.Pulsar.Tests.Kits
                 else
                 {
                     const string failMessage2 = "Failed: Expected a message of type {0}, but received {{{2}}} (type {1}) instead {3} from {4}";
-                    Assert.True(false, string.Format(failMessage2, typeof(T), envelope.GetType(), envelope, "", envelope.Sender));
+                    Assert.True(false, string.Format(failMessage2, typeof(T), envelope.Message.GetType(), envelope.Message, "", envelope.Sender));
 
                 }
                 
             }
-            const string failMessage = "Failed: Timeout {0}ms while waiting for a message of type {1} {2}";
-            Assert.True(false, string.Format(failMessage, timeoutms, typeof(T), ""));
+            else
+            {
+                const string failMessage = "Failed: Timeout {0}ms while waiting for a message of type {1} {2}";
+                Assert.True(false, string.Format(failMessage, timeoutms, typeof(T), ""));
+            }
             return (T)envelope.Message;
         }
-        public IActorRef Ref => _ref;
+        public IActorRef Ref { get; }
     }
     public  class MessageEnvelope
     {

@@ -11,8 +11,10 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Threading;
 using Akka.Actor;
 using Akka.Configuration;
+using Akka.Persistence.Pulsar.Tests.Kits;
 using Akka.Persistence.TCK;
 using Akka.Persistence.TCK.Journal;
 using Akka.Persistence.TCK.Serialization;
@@ -59,8 +61,9 @@ namespace Akka.Persistence.Pulsar.Tests
         ";
 
         private TestProbe _senderProbe;
-        private TestProbe _receiverProbe;
+        private Prober _receiverProbe;
         private string _pid;
+        private long _timeout;
         protected override bool SupportsSerialization => true;
 
         /// <summary>
@@ -68,9 +71,10 @@ namespace Akka.Persistence.Pulsar.Tests
         /// </summary>
         protected IEnumerable<AtomicWrite> Initialize()
         {
+            _timeout = 60000;
             _pid = Guid.NewGuid().ToString();
             _senderProbe = CreateTestProbe();
-            _receiverProbe = CreateTestProbe();
+            _receiverProbe = new Prober(Sys);
             PreparePersistenceId(_pid);
             return WriteMessages(1, 10, _pid, _senderProbe.Ref, WriterGuid);
         }
@@ -148,86 +152,87 @@ namespace Akka.Persistence.Pulsar.Tests
         public void Journal_should_replay_all_messages()
         {
             Journal.Tell(new ReplayMessages(1, 6, 6, _pid, _receiverProbe.Ref));
+            Thread.Sleep(20000);
             for (int i = 1; i <= 5; i++) 
-                _receiverProbe.ExpectMsg<ReplayedMessage>(m => IsReplayedMessage(m, i));
-            _receiverProbe.ExpectMsg<RecoverySuccess>();
+                _receiverProbe.ExpectMessage<ReplayedMessage>(_timeout, m => IsReplayedMessage(m, i));
+            _receiverProbe.ExpectMessage<RecoverySuccess>(_timeout);
         }
 
         [Fact]
         public void Journal_should_replay_messages_using_a_lower_sequence_number_bound()
         {
             Journal.Tell(new ReplayMessages(3, long.MaxValue, long.MaxValue, _pid, _receiverProbe.Ref));
-            for (int i = 3; i <= 5; i++) _receiverProbe.ExpectMsg<ReplayedMessage>(m => IsReplayedMessage(m, i));
-            _receiverProbe.ExpectMsg<RecoverySuccess>();
+            for (int i = 3; i <= 5; i++) _receiverProbe.ExpectMessage<ReplayedMessage>(_timeout, m => IsReplayedMessage(m, i));
+            _receiverProbe.ExpectMessage<RecoverySuccess>(_timeout);
         }
 
         [Fact]
         public void Journal_should_replay_messages_using_an_upper_sequence_number_bound()
         {
             Journal.Tell(new ReplayMessages(1, 3, long.MaxValue, _pid, _receiverProbe.Ref));
-            for (int i = 1; i <= 3; i++) _receiverProbe.ExpectMsg<ReplayedMessage>(m => IsReplayedMessage(m, i));
-            _receiverProbe.ExpectMsg<RecoverySuccess>();
+            for (int i = 1; i <= 3; i++) _receiverProbe.ExpectMessage<ReplayedMessage>(_timeout, m => IsReplayedMessage(m, i));
+            _receiverProbe.ExpectMessage<RecoverySuccess>(_timeout);
         }
 
         [Fact]
         public void Journal_should_replay_messages_using_a_count_limit()
         {
             Journal.Tell(new ReplayMessages(1, long.MaxValue, 3, _pid, _receiverProbe.Ref));
-            for (int i = 1; i <= 3; i++) _receiverProbe.ExpectMsg<ReplayedMessage>(m => IsReplayedMessage(m, i));
-            _receiverProbe.ExpectMsg<RecoverySuccess>();
+            for (int i = 1; i <= 3; i++) _receiverProbe.ExpectMessage<ReplayedMessage>(_timeout, m => IsReplayedMessage(m, i));
+            _receiverProbe.ExpectMessage<RecoverySuccess>(_timeout);
         }
 
         [Fact]
         public void Journal_should_replay_messages_using_lower_and_upper_sequence_number_bound()
         {
             Journal.Tell(new ReplayMessages(2, 3, long.MaxValue, _pid, _receiverProbe.Ref));
-            for (int i = 2; i <= 3; i++) _receiverProbe.ExpectMsg<ReplayedMessage>(m => IsReplayedMessage(m, i));
-            _receiverProbe.ExpectMsg<RecoverySuccess>();
+            for (int i = 2; i <= 3; i++) _receiverProbe.ExpectMessage<ReplayedMessage>(_timeout, m => IsReplayedMessage(m, i));
+            _receiverProbe.ExpectMessage<RecoverySuccess>(_timeout);
         }
 
         [Fact]
         public void Journal_should_replay_messages_using_lower_and_upper_sequence_number_bound_and_count_limit()
         {
             Journal.Tell(new ReplayMessages(2, 5, 2, _pid, _receiverProbe.Ref));
-            for (int i = 2; i <= 3; i++) _receiverProbe.ExpectMsg<ReplayedMessage>(m => IsReplayedMessage(m, i));
-            _receiverProbe.ExpectMsg<RecoverySuccess>();
+            for (int i = 2; i <= 3; i++) _receiverProbe.ExpectMessage<ReplayedMessage>(_timeout, m => IsReplayedMessage(m, i));
+            _receiverProbe.ExpectMessage<RecoverySuccess>(_timeout);
         }
 
         [Fact]
         public void Journal_should_replay_a_single_if_lower_sequence_number_bound_equals_upper_sequence_number_bound()
         {
             Journal.Tell(new ReplayMessages(2, 2, long.MaxValue, _pid, _receiverProbe.Ref));
-            _receiverProbe.ExpectMsg<ReplayedMessage>(m => IsReplayedMessage(m, 2));
-            _receiverProbe.ExpectMsg<RecoverySuccess>();
+            _receiverProbe.ExpectMessage<ReplayedMessage>(_timeout, m => IsReplayedMessage(m, 2));
+            _receiverProbe.ExpectMessage<RecoverySuccess>(_timeout);
         }
 
         [Fact]
         public void Journal_should_replay_a_single_message_if_count_limit_is_equal_one()
         {
             Journal.Tell(new ReplayMessages(2, 4, 1, _pid, _receiverProbe.Ref));
-            _receiverProbe.ExpectMsg<ReplayedMessage>(m => IsReplayedMessage(m, 2));
-            _receiverProbe.ExpectMsg<RecoverySuccess>();
+            _receiverProbe.ExpectMessage<ReplayedMessage>(_timeout, m => IsReplayedMessage(m, 2));
+            _receiverProbe.ExpectMessage<RecoverySuccess>(_timeout);
         }
 
         [Fact]
         public void Journal_should_not_replay_messages_if_count_limit_equals_zero()
         {
             Journal.Tell(new ReplayMessages(2, 4, 0, _pid, _receiverProbe.Ref));
-            _receiverProbe.ExpectMsg<RecoverySuccess>();
+            _receiverProbe.ExpectMessage<RecoverySuccess>(_timeout);
         }
 
         [Fact]
         public void Journal_should_not_replay_messages_if_lower_sequence_number_bound_is_greater_than_upper_sequence_number_bound()
         {
             Journal.Tell(new ReplayMessages(3, 2, long.MaxValue, _pid, _receiverProbe.Ref));
-            _receiverProbe.ExpectMsg<RecoverySuccess>();
+            _receiverProbe.ExpectMessage<RecoverySuccess>(_timeout);
         }
 
         [Fact]
         public void Journal_should_not_replay_messages_if_the_persistent_actor_has_not_yet_written_messages()
         {
             Journal.Tell(new ReplayMessages(0, long.MaxValue, long.MaxValue, "non-existing-pid", _receiverProbe.Ref));
-            _receiverProbe.ExpectMsg<RecoverySuccess>(m => m.HighestSequenceNr == 0L);
+            _receiverProbe.ExpectMessage<RecoverySuccess>(_timeout,m => m.HighestSequenceNr == 0L);
         }
 
         [Fact]
@@ -257,16 +262,16 @@ namespace Akka.Persistence.Pulsar.Tests
 
             Journal.Tell(new ReplayMessages(6L, long.MaxValue, long.MaxValue, _pid, _receiverProbe.Ref));
 
-            _receiverProbe.ExpectMsg<ReplayedMessage>(o =>
+            _receiverProbe.ExpectMessage<ReplayedMessage>(o =>
             {
                 Assertions.AssertEqual(writerGuid, o.Persistent.WriterGuid);
                 Assertions.AssertEqual(pid, o.Persistent.PersistenceId);
                 Assertions.AssertEqual(6L, o.Persistent.SequenceNr);
                 Assertions.AssertTrue(o.Persistent.Sender == ActorRefs.NoSender || o.Persistent.Sender.Equals(Sys.DeadLetters), $"Expected WriteMessagesSuccess.Persistent.Sender to be null or {Sys.DeadLetters}, but found {o.Persistent.Sender}");
                 Assertions.AssertEqual(@event, o.Persistent.Payload);
-            });
-
-            Assertions.AssertEqual(_receiverProbe.ExpectMsg<RecoverySuccess>().HighestSequenceNr, 6L);
+            }, _timeout);
+            
+            Assertions.AssertEqual(_receiverProbe.ExpectMessage<RecoverySuccess>(_timeout).HighestSequenceNr, 6L);
         }
 
     }
