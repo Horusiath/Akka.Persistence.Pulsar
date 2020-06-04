@@ -1,5 +1,5 @@
 ﻿//-----------------------------------------------------------------------
-// <copyright file="TestActor.cs" company="Akka.NET Project">
+// <copyright file="ProberTestActor.cs" company="Akka.NET Project">
 //     Copyright (C) 2009-2020 Lightbend Inc. <http://www.lightbend.com>
 //     Copyright (C) 2013-2020 .NET Foundation <https://github.com/akkadotnet/akka.net>
 // </copyright>
@@ -12,9 +12,12 @@ using Akka.Persistence.Journal;
 
 namespace Akka.Persistence.Pulsar.Tests.Kits
 {
-    internal class TestActor : UntypedPersistentActor, IWithUnboundedStash
+    internal class ProberTestActor : ReceivePersistentActor
     {
-        public static Props Props(string persistenceId) => Actor.Props.Create(() => new TestActor(persistenceId));
+        public static Props Prop(string persistenceId)
+        {
+            return Props.Create(() => new ProberTestActor(persistenceId));
+        }
 
         public sealed class DeleteCommand
         {
@@ -26,31 +29,17 @@ namespace Akka.Persistence.Pulsar.Tests.Kits
             public long ToSequenceNr { get; }
         }
 
-        public TestActor(string persistenceId)
+        public ProberTestActor(string persistenceId)
         {
             PersistenceId = persistenceId;
+            Command<string>(c =>
+            {
+                var sender = Sender;
+                Persist(c, e => sender.Tell($"{e}-done"));
+            });
         }
 
         public override string PersistenceId { get; }
-
-        protected override void OnRecover(object message)
-        {
-        }
-
-        protected override void OnCommand(object message)
-        {
-            switch (message)
-            {
-                case DeleteCommand delete:
-                    DeleteMessages(delete.ToSequenceNr);
-                    Become(WhileDeleting(Sender)); // need to wait for delete ACK to return
-                    break;
-                case string cmd:
-                    var sender = Sender;
-                    Persist(cmd, e => sender.Tell($"{e}-done"));
-                    break;
-            }
-        }
 
         protected Receive WhileDeleting(IActorRef originalSender)
         {

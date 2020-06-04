@@ -19,6 +19,14 @@ namespace Akka.Persistence.Pulsar.Tests.Kits
             Ref = _sys.ActorOf(ProberActor.Prop(_collection));
         }
 
+        public T ExpectMessage<T>(T message, long timeoutms)
+        {
+            return ExpectMessage<T>(m =>
+            {
+                Assert.Equal(message, m);
+            }, timeoutms);
+        }
+
         public T ExpectMessage<T>(long timeoutms)
         {
             MessageEnvelope envelope = null;
@@ -88,6 +96,7 @@ namespace Akka.Persistence.Pulsar.Tests.Kits
             return (T)envelope.Message;
         }
         public IActorRef Ref { get; }
+        public IActorRef PerRef { get; }
     }
     public  class MessageEnvelope
     {

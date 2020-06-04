@@ -101,9 +101,16 @@ namespace Akka.Persistence.Pulsar.Journal
         }
         public async Task<long> ReadHighestSequenceNr(string persistenceId, long fromSequenceNr)
         {
-            var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/journal-{persistenceId}";
-            var numb = Client.EventSource(new GetNumberOfEntries(topic, Settings.AdminUrl));
-            return await Task.FromResult(numb.Max.Value);
+            try
+            {
+                var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/journal-{persistenceId}";
+                var numb = Client.EventSource(new GetNumberOfEntries(topic, Settings.AdminUrl));
+                return await Task.FromResult(numb.Max.Value);
+            }
+            catch (Exception e)
+            {
+                return 0;
+            }
         }
         private void CreateJournalProducer(string topic, string persistenceid)
         {

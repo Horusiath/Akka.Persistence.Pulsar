@@ -114,7 +114,7 @@ namespace Akka.Persistence.Pulsar.Tests
 
         private IActorRef SetupEmpty(string persistenceId)
         {
-            return Sys.ActorOf(Kits.TestActor.Props(persistenceId));
+            return Sys.ActorOf(Kits.ProberTestActor.Prop(persistenceId));
         }
 
         protected override void Dispose(bool disposing)

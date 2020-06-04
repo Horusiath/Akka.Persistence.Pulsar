@@ -33,8 +33,8 @@ namespace Akka.Persistence.Pulsar.Tests
         public override void ReadJournal_query_CurrentEventsByTag_should_find_existing_events()
         {
             var queries = ReadJournal as ICurrentEventsByTagQuery;
-            var a = Sys.ActorOf(Kits.TestActor.Props("a"));
-            var b = Sys.ActorOf(Kits.TestActor.Props("b"));
+            var a = Sys.ActorOf(Kits.ProberTestActor.Prop("a"));
+            var b = Sys.ActorOf(Kits.ProberTestActor.Prop("b"));
 
             a.Tell("hello");
             ExpectMsg("hello-done");
@@ -76,8 +76,8 @@ namespace Akka.Persistence.Pulsar.Tests
         public override void ReadJournal_query_CurrentEventsByTag_should_complete_when_no_events()
         {
             var queries = ReadJournal as ICurrentEventsByTagQuery;
-            var a = Sys.ActorOf(Kits.TestActor.Props("a"));
-            var b = Sys.ActorOf(Kits.TestActor.Props("b"));
+            var a = Sys.ActorOf(Kits.ProberTestActor.Prop("a"));
+            var b = Sys.ActorOf(Kits.ProberTestActor.Prop("b"));
 
             a.Tell("a green apple");
             ExpectMsg("a green apple-done");
@@ -96,7 +96,7 @@ namespace Akka.Persistence.Pulsar.Tests
             var queries = ReadJournal as ICurrentEventsByTagQuery;
             ReadJournal_query_CurrentEventsByTag_should_find_existing_events();
 
-            var c = Sys.ActorOf(Kits.TestActor.Props("c"));
+            var c = Sys.ActorOf(Kits.ProberTestActor.Prop("c"));
 
             var greenSrc = queries.CurrentEventsByTag("green", offset: NoOffset.Instance);
             var probe = greenSrc.RunWith(this.SinkProbe<EventEnvelope>(), Materializer);
@@ -119,9 +119,9 @@ namespace Akka.Persistence.Pulsar.Tests
         {
             var queries = ReadJournal as ICurrentEventsByTagQuery;
 
-            var a = Sys.ActorOf(Kits.TestActor.Props("a"));
-            var b = Sys.ActorOf(Kits.TestActor.Props("b"));
-            var c = Sys.ActorOf(Kits.TestActor.Props("c"));
+            var a = Sys.ActorOf(Kits.ProberTestActor.Prop("a"));
+            var b = Sys.ActorOf(Kits.ProberTestActor.Prop("b"));
+            var c = Sys.ActorOf(Kits.ProberTestActor.Prop("c"));
 
             a.Tell("hello");
             ExpectMsg("hello-done");
@@ -157,7 +157,7 @@ namespace Akka.Persistence.Pulsar.Tests
         public override void ReadJournal_query_CurrentEventsByTag_should_see_all_150_events()
         {
             var queries = ReadJournal as ICurrentEventsByTagQuery;
-            var a = Sys.ActorOf(Kits.TestActor.Props("a"));
+            var a = Sys.ActorOf(Kits.ProberTestActor.Prop("a"));
 
             for (int i = 0; i < 150; ++i)
             {

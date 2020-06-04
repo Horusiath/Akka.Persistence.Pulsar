@@ -32,12 +32,15 @@ namespace Akka.Persistence.Pulsar.Tests
         protected ActorMaterializer Materializer { get; }
 
         protected IReadJournal ReadJournal { get; set; }
+        private Prober _receiverProbe;
+        private long _timeout = 30_000;
 
-        protected PulsarCurrentEventsByPersistenceIdSpec(ITestOutputHelper output) : base(SpecConfig,
+        public PulsarCurrentEventsByPersistenceIdSpec(ITestOutputHelper output) : base(SpecConfig,
             "PulsarCurrentEventsByPersistenceIdSpec", output)
         {
             Materializer = Sys.Materializer();
             ReadJournal = Sys.ReadJournalFor<PulsarReadJournal>(PulsarReadJournal.Identifier);
+            _receiverProbe = new Prober(Sys);
         }
 
         [Fact]
@@ -49,16 +52,17 @@ namespace Akka.Persistence.Pulsar.Tests
         [Fact]
         public void ReadJournal_CurrentEventsByPersistenceId_should_find_existing_events()
         {
+            var persistenceId = Guid.NewGuid().ToString();
             var queries = ReadJournal.AsInstanceOf<ICurrentEventsByPersistenceIdQuery>();
-            var pref = Setup("a");
+            var pref = Setup(persistenceId);
 
-            var src = queries.CurrentEventsByPersistenceId("a", 0, long.MaxValue);
+            var src = queries.CurrentEventsByPersistenceId(persistenceId, 1, long.MaxValue);
             var probe = src.Select(x => x.Event).RunWith(this.SinkProbe<object>(), Materializer);
             probe.Request(2)
-                .ExpectNext("a-1", "a-2")
-                .ExpectNoMsg(TimeSpan.FromMilliseconds(500));
+                .ExpectNext($"{persistenceId}-1", $"{persistenceId}-2")
+                .ExpectNoMsg(TimeSpan.FromMilliseconds(100));
             probe.Request(2)
-                .ExpectNext("a-3")
+                .ExpectNext($"{persistenceId}-3")
                 .ExpectComplete();
         }
 
@@ -102,7 +106,7 @@ namespace Akka.Persistence.Pulsar.Tests
             var queries = ReadJournal.AsInstanceOf<ICurrentEventsByPersistenceIdQuery>();
             var pref = Setup("g1");
 
-            pref.Tell(new TestActor.DeleteCommand(3));
+            pref.Tell(new ProberTestActor.DeleteCommand(3));
             AwaitAssert(() => ExpectMsg("3-deleted"));
 
             var src = queries.CurrentEventsByPersistenceId("g1", 0, long.MaxValue);
@@ -116,7 +120,7 @@ namespace Akka.Persistence.Pulsar.Tests
             var queries = ReadJournal.AsInstanceOf<ICurrentEventsByPersistenceIdQuery>();
             var pref = Setup("g2");
 
-            pref.Tell(new TestActor.DeleteCommand(3));
+            pref.Tell(new ProberTestActor.DeleteCommand(3));
             AwaitAssert(() => ExpectMsg("3-deleted"));
 
             var src = queries.CurrentEventsByPersistenceId("g2", 0, 0);
@@ -130,7 +134,7 @@ namespace Akka.Persistence.Pulsar.Tests
             var queries = ReadJournal.AsInstanceOf<ICurrentEventsByPersistenceIdQuery>();
             var pref = Setup("h");
 
-            pref.Tell(new TestActor.DeleteCommand(2));
+            pref.Tell(new ProberTestActor.DeleteCommand(2));
             AwaitAssert(() => ExpectMsg("2-deleted"));
 
             var src = queries.CurrentEventsByPersistenceId("h", 0L, long.MaxValue);
@@ -187,19 +191,19 @@ namespace Akka.Persistence.Pulsar.Tests
         {
             var pref = SetupEmpty(persistenceId);
 
-            pref.Tell(persistenceId + "-1");
-            pref.Tell(persistenceId + "-2");
-            pref.Tell(persistenceId + "-3");
+            pref.Tell(persistenceId + "-1", _receiverProbe.Ref);
+            pref.Tell(persistenceId + "-2", _receiverProbe.Ref);
+            pref.Tell(persistenceId + "-3", _receiverProbe.Ref);
 
-            ExpectMsg(persistenceId + "-1-done");
-            ExpectMsg(persistenceId + "-2-done");
-            ExpectMsg(persistenceId + "-3-done");
+            _receiverProbe.ExpectMessage(persistenceId + "-1-done", _timeout);
+            _receiverProbe.ExpectMessage(persistenceId + "-2-done", _timeout);
+            _receiverProbe.ExpectMessage(persistenceId + "-3-done", _timeout);
             return pref;
         }
 
         private IActorRef SetupEmpty(string persistenceId)
         {
-            return Sys.ActorOf(Kits.TestActor.Props(persistenceId));
+            return Sys.ActorOf(ProberTestActor.Prop(persistenceId));
         }
 
         protected override void Dispose(bool disposing)

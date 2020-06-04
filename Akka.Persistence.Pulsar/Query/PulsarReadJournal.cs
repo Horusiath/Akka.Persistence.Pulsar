@@ -15,8 +15,7 @@ using Akka.Streams.Dsl;
 
 namespace Akka.Persistence.Pulsar.Query
 {
-    public sealed class PulsarReadJournal : IReadJournal,
-        IPersistenceIdsQuery,
+    public sealed class PulsarReadJournal : IPersistenceIdsQuery,
         ICurrentPersistenceIdsQuery,
         IEventsByPersistenceIdQuery,
         ICurrentEventsByPersistenceIdQuery,

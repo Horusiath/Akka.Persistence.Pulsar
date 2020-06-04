@@ -11,6 +11,7 @@ using System;
 using Akka.Actor;
 using Akka.Configuration;
 using Akka.Persistence.Pulsar.Query;
+using Akka.Persistence.Pulsar.Tests.Kits;
 using Akka.Persistence.Query;
 using Akka.Persistence.TCK.Query;
 using Akka.Streams.TestKit;
@@ -89,7 +90,7 @@ namespace Akka.Persistence.Pulsar.Tests
 
         private IActorRef Setup(string persistenceId, int n)
         {
-            var pref = Sys.ActorOf(Kits.TestActor.Props(persistenceId));
+            var pref = Sys.ActorOf(ProberTestActor.Prop(persistenceId));
             for (int i = 1; i <= n; i++)
             {
                 pref.Tell($"{persistenceId}-{i}");
