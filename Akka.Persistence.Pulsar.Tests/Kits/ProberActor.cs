@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using Akka.Actor;
 using Akka.Persistence.Query;
+using Akka.Streams.Actors;
 
 namespace Akka.Persistence.Pulsar.Tests.Kits
 {
@@ -27,8 +28,12 @@ namespace Akka.Persistence.Pulsar.Tests.Kits
                 case LoadSnapshotResult f:
                 case SaveSnapshotSuccess g:
                 case ReplayMessagesFailure y:
+                case OnComplete oc:
                 case string s:
                     _queue.Add(new MessageEnvelope(message, Sender));
+                    break;
+                case OnNext n:
+                    _queue.Add(new MessageEnvelope(n.Element, Sender));
                     break;
 
             }
