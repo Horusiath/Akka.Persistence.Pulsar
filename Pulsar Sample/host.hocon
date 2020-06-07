@@ -53,7 +53,7 @@
 								pulsar-tenant = "public"
 								pulsar-namespace = "default"
 								event-adapters = { 
-									utc-tagger = "Producer.Actors.EventTagger, Producer" 
+									utc-tagger = "Sample.Event.EventTagger, Sample" 
 								}
 								event-adapter-bindings = {  
 									"Sample.Event.IEvent, Sample" = utc-tagger 

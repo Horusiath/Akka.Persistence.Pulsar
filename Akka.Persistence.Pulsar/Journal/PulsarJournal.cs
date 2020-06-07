@@ -116,19 +116,18 @@ namespace Akka.Persistence.Pulsar.Journal
             {
                 var persistentMessages = ((IImmutableList<IPersistentRepresentation>)message.Payload);
 
-                if (HasTagSubscribers)
+                foreach (var p in persistentMessages)
                 {
-                    foreach (var p in persistentMessages)
+                    if (p.Payload is Tagged t)
                     {
-                        if (p.Payload is Tagged t)
-                        {
-                            allTags = allTags.Union(t.Tags);
-                        }
+                        allTags = allTags.Union(t.Tags);
                     }
                 }
 
+                var sequenceId = message.HighestSequenceNr > 0 ? message.HighestSequenceNr: 1;
                 var metadata = new Dictionary<string, object>
                 {
+                    ["sequenceId"] = sequenceId,
                     ["Properties"] = new Dictionary<string, string>
                     {
                         {"Tag", string.Join(",", allTags) }
@@ -246,6 +245,7 @@ namespace Akka.Persistence.Pulsar.Journal
         /// <returns>TBD</returns>
         private async Task<long> ReplayTaggedMessagesAsync(ReplayTaggedMessages replay)
         {
+            //var hSequence = await _journalExecutor.ReadHighestSequenceNr("*", replay.FromOffset);
             var topic = $"{_journalExecutor.Settings.TopicPrefix.TrimEnd('/')}/journal-*".ToLower();
             var tag = replay.Tag;
             if (!_taggedFirstRun)
@@ -274,7 +274,7 @@ namespace Akka.Persistence.Pulsar.Journal
                     .Topic(topic)
                     .StartMessageId(MessageIdFields.Latest)
                     .ReaderConfigurationData;
-                var repy = new ReplayTopic(readerConfig, _journalExecutor.Settings.AdminUrl, replay.FromOffset, replay.ToOffset, replay.Max, new Tag("Tag", tag), true);
+                var repy = new ReplayTopic(readerConfig, _journalExecutor.Settings.AdminUrl, replay.FromOffset, replay.ToOffset,replay.Max, new Tag("Tag", tag), true);
                 foreach (var m in _journalExecutor.Client.EventSource<JournalEntry>(repy))
                 {
                     var ordering = m.SequenceNr;

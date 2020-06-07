@@ -220,38 +220,5 @@ namespace Akka.Persistence.Pulsar.Journal
             var numb = Client.EventSource(new GetNumberOfEntries(topic, Settings.AdminUrl));
             return numb.Max.Value;
         }
-        /*internal long GetMaxOrderingId(ReplayTaggedMessages replay, List<string> ids)
-        {
-            var tag = replay.Tag;
-            var ls = new List<string>();
-            var tags = "WITH tags AS(";
-            foreach (var d in ids)
-            {
-                ls.Add($"select SequenceNr from pulsar.\"{Settings.Tenant}/{Settings.Namespace}\".\"journal-{d}\" where json_array_contains(Tags, '{tag}') ");
-            }
-
-            tags += string.Join(", ", ls);
-            tags += $"){Environment.NewLine}";
-            tags += "select MAX(SequenceNr) AS SequenceNr from tags";
-            var messages = Client.PulsarSql(new Sql(tags,
-                 e =>
-                {
-                    _log.Error(e.ToString());
-                }, Settings.PrestoServer, l =>
-                {
-                    _log.Info(l);
-                }));
-            var seq = 0L;
-
-            foreach (var d in messages)
-            {
-                if (d.HasRow)
-                {
-                    seq = (long)d.Data["SequenceNr"];
-                }
-                break;
-            }
-            return seq;
-        }*/
     }
 }

@@ -177,7 +177,7 @@ namespace Akka.Persistence.Pulsar.Query
         /// </summary>
         public Source<EventEnvelope, NotUsed> CurrentEventsByTag(string tag, Offset offset = null)
         {
-            offset ??= new Sequence(0L);
+            offset ??= new Sequence(1L);
             switch (offset)
             {
                 case Sequence seq:
@@ -185,7 +185,7 @@ namespace Akka.Persistence.Pulsar.Query
                         .MapMaterializedValue(_ => NotUsed.Instance)
                         .Named($"CurrentEventsByTag-{tag}");
                 case NoOffset _:
-                    return CurrentEventsByTag(tag, new Sequence(0L));
+                    return CurrentEventsByTag(tag, new Sequence(1L));
                 default:
                     throw new ArgumentException($"PulsarReadJournal does not support {offset.GetType().Name} offsets");
             }

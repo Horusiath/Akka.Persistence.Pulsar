@@ -11,8 +11,12 @@ using System;
 using Akka.Actor;
 using Akka.Configuration;
 using Akka.Persistence.Pulsar.Query;
+using Akka.Persistence.Pulsar.Tests.Kits;
 using Akka.Persistence.Query;
 using Akka.Persistence.TCK.Query;
+using Akka.Streams;
+using Akka.Streams.Actors;
+using Akka.Streams.Dsl;
 using Akka.Streams.TestKit;
 using Xunit;
 using Xunit.Abstractions;
@@ -23,18 +27,24 @@ namespace Akka.Persistence.Pulsar.Tests
     {
         private static readonly Config SpecConfig = ConfigurationFactory.ParseString(@"
             akka.persistence.journal.plugin = ""akka.persistence.journal.pulsar""
+			akka.persistence.journal.pulsar.event-adapters = {utc-tagger = ""Sample.Event.EventTagger, Sample""}
+			akka.persistence.journal.pulsar.event-adapter-bindings = {  ""System.String, System.Private.CoreLib"" = utc-tagger}
             akka.test.single-expect-default = 60s
         ").WithFallback(PulsarPersistence.DefaultConfiguration());
+        private Prober _receiverProbe;
+        private long _timeout = 30_000;
         public PulsarCurrentEventsByTagSpec(ITestOutputHelper output) : base(SpecConfig, output: output)
         {
             ReadJournal = Sys.ReadJournalFor<PulsarReadJournal>(PulsarReadJournal.Identifier);
+            _receiverProbe = new Prober(Sys);
         }
         [Fact]
         public override void ReadJournal_query_CurrentEventsByTag_should_find_existing_events()
         {
+            var persistenceId = Guid.NewGuid().ToString();
             var queries = ReadJournal as ICurrentEventsByTagQuery;
-            var a = Sys.ActorOf(Kits.ProberTestActor.Prop("a"));
-            var b = Sys.ActorOf(Kits.ProberTestActor.Prop("b"));
+            var a = Sys.ActorOf(ProberTestActor.Prop($"event-a-{persistenceId}")); 
+            var b = Sys.ActorOf(ProberTestActor.Prop($"event-b-{persistenceId}")); 
 
             a.Tell("hello");
             ExpectMsg("hello-done");
@@ -49,27 +59,28 @@ namespace Akka.Persistence.Pulsar.Tests
             b.Tell("a green leaf");
             ExpectMsg("a green leaf-done");
 
-            var greenSrc = queries.CurrentEventsByTag("green", offset: NoOffset.Instance);
-            var probe = greenSrc.RunWith(this.SinkProbe<EventEnvelope>(), Materializer);
-            probe.Request(2);
-            probe.ExpectNext<EventEnvelope>(p => p.PersistenceId == "a" && p.SequenceNr == 2L && p.Event.Equals("a green apple"));
-            probe.ExpectNext<EventEnvelope>(p => p.PersistenceId == "a" && p.SequenceNr == 4L && p.Event.Equals("a green banana"));
-            probe.ExpectNoMsg(TimeSpan.FromMilliseconds(500));
-            probe.Request(2);
-            probe.ExpectNext<EventEnvelope>(p => p.PersistenceId == "b" && p.SequenceNr == 2L && p.Event.Equals("a green leaf"));
-            probe.ExpectComplete();
+            var greenSrc = queries.CurrentEventsByTag("green", offset: new Sequence(1L));
+            var probe = greenSrc.RunWith(Sink.ActorSubscriber<EventEnvelope>(ManualSubscriber.Props(_receiverProbe.Ref)), Materializer);
+            probe.Tell("ready-2"); //requesting 2
+
+            _receiverProbe.ExpectMessage<EventEnvelope>(_timeout, p => p.PersistenceId == $"event-a-{persistenceId}" && p.SequenceNr == 2L && p.Event.Equals("a green apple"));
+            _receiverProbe.ExpectMessage<EventEnvelope>(_timeout,p => p.PersistenceId == $"event-a-{persistenceId}" && p.SequenceNr == 4L && p.Event.Equals("a green banana"));
+            ExpectNoMsg(TimeSpan.FromMilliseconds(500));
+            probe.Tell("ready-2"); //requesting 2
+            _receiverProbe.ExpectMessage<EventEnvelope>(_timeout,p => p.PersistenceId == $"event-b-{persistenceId}" && p.SequenceNr == 2L && p.Event.Equals("a green leaf"));
+            _receiverProbe.ExpectMessage<OnComplete>(_timeout);
 
             var blackSrc = queries.CurrentEventsByTag("black", offset: NoOffset.Instance);
-            var probe2 = blackSrc.RunWith(this.SinkProbe<EventEnvelope>(), Materializer);
-            probe2.Request(5);
-            probe2.ExpectNext<EventEnvelope>(p => p.PersistenceId == "b" && p.SequenceNr == 1L && p.Event.Equals("a black car"));
-            probe2.ExpectComplete();
+            var probe2 = blackSrc.RunWith(Sink.ActorSubscriber<EventEnvelope>(ManualSubscriber.Props(_receiverProbe.Ref)), Materializer);
+            probe2.Tell("ready-5");
+            _receiverProbe.ExpectMessage<EventEnvelope>(_timeout, p => p.PersistenceId == $"event-b-{persistenceId}" && p.SequenceNr == 1L && p.Event.Equals("a black car"));
+            _receiverProbe.ExpectMessage<OnComplete>(_timeout);
 
             var appleSrc = queries.CurrentEventsByTag("apple", offset: NoOffset.Instance);
-            var probe3 = appleSrc.RunWith(this.SinkProbe<EventEnvelope>(), Materializer);
-            probe3.Request(5);
-            probe3.ExpectNext<EventEnvelope>(p => p.PersistenceId == "a" && p.SequenceNr == 2L && p.Event.Equals("a green apple"));
-            probe3.ExpectComplete();
+            var probe3 = appleSrc.RunWith(Sink.ActorSubscriber<EventEnvelope>(ManualSubscriber.Props(_receiverProbe.Ref)), Materializer);
+            probe3.Tell("ready-5");
+            _receiverProbe.ExpectMessage<EventEnvelope>(_timeout, p => p.PersistenceId == $"event-a-{persistenceId}" && p.SequenceNr == 2L && p.Event.Equals("a green apple"));
+            _receiverProbe.ExpectMessage<OnComplete>(_timeout);
         }
 
         [Fact]

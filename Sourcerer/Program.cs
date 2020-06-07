@@ -24,10 +24,10 @@ namespace Sourcerer
             _readJournal = PersistenceQuery.Get(actorSystem).ReadJournalFor<PulsarReadJournal>("akka.persistence.query.journal.pulsar");
             //PersistenceIds();
             //CurrentPersistenceIds();
-            EventsByPersistenceId();
+            //EventsByPersistenceId();
             //CurrentEventsByPersistenceId();
             //EventsByTag();
-            //CurrentEventsByTag();
+            CurrentEventsByTag();
 
             Console.ReadLine();
         }
@@ -56,7 +56,7 @@ namespace Sourcerer
         }
         private static void CurrentEventsByPersistenceId()
         {
-            var persistenceIdsSource1 = _readJournal.CurrentEventsByPersistenceId("utcreader", 1L, 320);
+            var persistenceIdsSource1 = _readJournal.CurrentEventsByPersistenceId("utcreader-1", 1L, 320);
             var persistenceStream1 = new SourceObservable<EventEnvelope>(persistenceIdsSource1, _mat);
             persistenceStream1.Subscribe(e =>
             {
@@ -75,7 +75,7 @@ namespace Sourcerer
         }
         private static void EventsByTag()
         {
-            var tagSource = _readJournal.EventsByTag("utc", Offset.Sequence(0L));
+            var tagSource = _readJournal.EventsByTag("utc", Offset.Sequence(1L));
              _tagStream = new SourceObservable<EventEnvelope>(tagSource, _mat);
              _tagStream.Subscribe(e =>
              {
@@ -84,7 +84,7 @@ namespace Sourcerer
         }
         private static void CurrentEventsByTag()
         {
-            var tagSource = _readJournal.CurrentEventsByTag("utc", Offset.Sequence(0L));
+            var tagSource = _readJournal.CurrentEventsByTag("utc", Offset.Sequence(1L));
              _tagStream = new SourceObservable<EventEnvelope>(tagSource, _mat);
              _tagStream.Subscribe(e =>
              {
