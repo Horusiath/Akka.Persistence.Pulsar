@@ -19,7 +19,7 @@ namespace Producer
             var actorSystem = ActorSystem.Create("SampleSystem", ConfigurationFactory.ParseString(config));
             var conct = new ConcurrentDictionary<Type, object>();
             var y = conct.Take(100);
-            var sampleActor = actorSystem.ActorOf(SamplePersistentActor.Prop(), "utcreader-1");
+            var sampleActor = actorSystem.ActorOf(SamplePersistentActor.Prop(), "utcreader-2");
             while (true)
             {
                 Thread.Sleep(TimeSpan.FromSeconds(1));

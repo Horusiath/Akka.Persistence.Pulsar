@@ -245,7 +245,6 @@ namespace Akka.Persistence.Pulsar.Journal
         /// <returns>TBD</returns>
         private async Task<long> ReplayTaggedMessagesAsync(ReplayTaggedMessages replay)
         {
-            //var hSequence = await _journalExecutor.ReadHighestSequenceNr("*", replay.FromOffset);
             var topic = $"{_journalExecutor.Settings.TopicPrefix.TrimEnd('/')}/journal-*".ToLower();
             var tag = replay.Tag;
             if (!_taggedFirstRun)
