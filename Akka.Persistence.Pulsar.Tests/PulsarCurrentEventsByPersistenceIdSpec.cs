@@ -76,7 +76,7 @@ namespace Akka.Persistence.Pulsar.Tests
             var queries = ReadJournal.AsInstanceOf<ICurrentEventsByPersistenceIdQuery>();
             var pref = Setup(persistenceId);
 
-            var src = queries.CurrentEventsByPersistenceId(persistenceId, 1, 2L);
+            var src = queries.CurrentEventsByPersistenceId(persistenceId, 1, 3L);
             var probe = src.Select(x => x.Event).RunWith(Sink.ActorSubscriber<object>(ManualSubscriber.Props(_receiverProbe.Ref)), Sys.Materializer());
 
             ExpectNoMsg(200);

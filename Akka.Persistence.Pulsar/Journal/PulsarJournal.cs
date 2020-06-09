@@ -51,7 +51,7 @@ namespace Akka.Persistence.Pulsar.Journal
         /// TBD
         /// </summary>
         public IEnumerable<string> AllPersistenceIds => _allPersistenceIds;
-        private bool _firstRun = true;
+
         private readonly PulsarJournalExecutor _journalExecutor;
         private readonly CancellationTokenSource _pendingRequestsCancellation;
 
@@ -344,13 +344,6 @@ namespace Akka.Persistence.Pulsar.Journal
                 var added = new PersistenceIdAdded(persistenceId);
                 foreach (var subscriber in _allPersistenceIdSubscribers)
                     subscriber.Tell(added);
-            }
-            var pro = _journalExecutor.PersistenceId;
-            if (pro.producer != null && !_registeredPersistenceIds.Contains(persistenceId))
-            {
-                var journalEntries = new Send(new PersistentIdEntry { EntryDate = DateTimeHelper.CurrentUnixTimeMillis(), Id = persistenceId }, pro.topic, ImmutableDictionary<string, object>.Empty);
-                _journalExecutor.Client.Send(journalEntries, pro.producer);
-                _registeredPersistenceIds.Add(persistenceId);
             }
         }
 

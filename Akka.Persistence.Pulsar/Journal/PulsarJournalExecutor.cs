@@ -10,7 +10,6 @@ using Akka.Persistence.Pulsar.Query;
 using Akka.Serialization;
 using SharpPulsar.Akka;
 using SharpPulsar.Akka.Configuration;
-using SharpPulsar.Akka.InternalCommands;
 using SharpPulsar.Akka.InternalCommands.Consumer;
 using SharpPulsar.Akka.InternalCommands.Producer;
 using SharpPulsar.Api;
@@ -27,7 +26,6 @@ namespace Akka.Persistence.Pulsar.Journal
         public static readonly ConcurrentDictionary<string, IActorRef> Producers = new ConcurrentDictionary<string, IActorRef>();
         private readonly DefaultProducerListener _producerListener;
 
-        private (string topic, IActorRef producer) _persistenceId;
         private readonly AvroSchema _journalEntrySchema;
         private readonly List<string> _activeReplayTopics;
 
@@ -128,23 +126,14 @@ namespace Akka.Persistence.Pulsar.Journal
                 }
             }
         }
-        internal (string topic, IActorRef producer) GetProducer(string persistenceid, string type)
+        internal (string topic, IActorRef producer) GetProducer(string persistenceId, string type)
         {
-            var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/{type}-{persistenceid}".ToLower();
+            var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/{type}-{persistenceId}".ToLower();
             var p = Producers.FirstOrDefault(x => x.Key == topic).Value;
             if (p == null)
             {
-                switch (type.ToLower())
-                {
-                    case "journal":
-                        CreateJournalProducer(topic, persistenceid);
-                        break;
-                    case "persistence":
-                        //CreatePersistentProducer();
-                        break;
-                }
-
-                return GetProducer(persistenceid, type);
+                CreateJournalProducer(topic, persistenceId);
+                return GetProducer(persistenceId, type);
             }
             return (topic, p);
         }
@@ -155,8 +144,7 @@ namespace Akka.Persistence.Pulsar.Journal
 
         public PulsarSystem Client { get; }
         internal PulsarSettings Settings { get; }
-        internal (string topic, IActorRef producer) PersistenceId => _persistenceId;
-        
+
         internal long GetMaxOrderingId(ReplayTaggedMessages replay)
         {
             var topic = $"{Settings.TopicPrefix.TrimEnd('/')}/journal-*";
